@@ -1,0 +1,17 @@
+{
+  "name": "michi-run-neon-nights",
+  "private": true,
+  "version": "2.0.0",
+  "type": "module",
+  "engines": { "node": ">=20.19.0" },
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "vite build",
+    "preview": "vite preview --host 0.0.0.0",
+    "test": "node --test tests/*.test.js",
+    "test:browser": "node tests/browser.mjs",
+    "test:production": "node tests/browser.mjs --production"
+  },
+  "dependencies": { "phaser": "3.90.0", "@fontsource/rajdhani": "^5.2.8", "@fontsource/orbitron": "^5.2.8" },
+  "devDependencies": { "vite": "^7.3.1", "@playwright/test": "^1.58.0" }
+}
