@@ -23,6 +23,7 @@ export class RunDirector {
     this.nextOrbs = 900;
     this.nextPowerup = 11000;
     this.waveCount = 0;
+    this.catcherSummoned = false;
   }
 
   random() {
@@ -46,7 +47,7 @@ export class RunDirector {
     return { index, name: SECTORS[index % SECTORS.length] };
   }
 
-  update(delta, worldSpeed = this.speed) {
+  update(delta, worldSpeed = this.speed, evolutionLevel = 1, catcherActive = false) {
     if (!Number.isFinite(delta) || delta <= 0) return [];
     // A recovered browser tab must not dump a backlog of encounters on the player.
     const step = Math.min(delta, 100);
@@ -56,6 +57,15 @@ export class RunDirector {
     this.nextPowerup -= step;
     const events = [];
     const seconds = this.runElapsed / 1000;
+
+    if (evolutionLevel < 4) {
+      this.catcherSummoned = false;
+    } else if (catcherActive) {
+      this.catcherSummoned = true;
+    } else if (!this.catcherSummoned) {
+      events.push({ type: 'cyber-catcher', offset: 0 });
+      this.catcherSummoned = true;
+    }
 
     if (this.nextDog <= 0) {
       this.waveCount += 1;

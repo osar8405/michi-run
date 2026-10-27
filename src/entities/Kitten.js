@@ -254,15 +254,37 @@ export class Kitten extends Phaser.Physics.Arcade.Sprite {
 
   takeDamage(time = this.scene?.playTime ?? this.lastUpdateTime) {
     if (this.stopped || this.isDead || this.isDashing || time < this.invincibleUntil) return false;
-    const previousColor = this.evolution.color;
-    this.endAttack();
-    this.clearWeapons();
-    this.evolutionCharge = 0;
+    const previousColor = this.beginHit();
     if (this.currentEvolutionLevel === 1) this.isDead = true;
     else {
       this.currentEvolutionLevel -= 1;
       this.applyEvolution();
     }
+    this.finishHit(time, previousColor, 'hurt');
+    return true;
+  }
+
+  takeEmpNetHit(time = this.scene?.playTime ?? this.lastUpdateTime) {
+    if (this.stopped || this.isDead || this.isDashing) return false;
+    const previousColor = this.beginHit();
+    if (this.currentEvolutionLevel === 1) this.isDead = true;
+    else {
+      this.currentEvolutionLevel = 1;
+      this.applyEvolution();
+    }
+    this.finishHit(time, previousColor, 'emp-hit');
+    return true;
+  }
+
+  beginHit() {
+    const previousColor = this.evolution.color;
+    this.endAttack();
+    this.clearWeapons();
+    this.evolutionCharge = 0;
+    return previousColor;
+  }
+
+  finishHit(time, previousColor, action) {
     this.invincibleUntil = time + EVOLUTION_RULES.immunity;
     this.hurtUntil = time + 190;
     this.isGliding = false;
@@ -270,8 +292,7 @@ export class Kitten extends Phaser.Physics.Arcade.Sprite {
     this.setVelocity(-180, -250);
     this.scene.effects?.shatter(this.x, this.y, previousColor);
     this.scene.events.emit('evolution-changed', this.currentEvolutionLevel, false);
-    this.scene.events.emit('player-action', 'hurt');
-    return true;
+    this.scene.events.emit('player-action', action);
   }
 
   updateAttackHitbox() {

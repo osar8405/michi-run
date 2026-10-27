@@ -124,3 +124,23 @@ test('un frame inválido o una pestaña recuperada no descarga una cola de enemi
   const events = simulate(director, 3, true);
   assert.equal(events.filter((event) => event.type === 'dog').length, 1);
 });
+
+test('el Cyber-Catcher aparece una vez por cada estancia en niveles 4–5', () => {
+  const director = new RunDirector(42);
+  assert.deepEqual(director.update(FRAME, director.speed, 3, false)
+    .filter((event) => event.type === 'cyber-catcher'), []);
+
+  assert.deepEqual(director.update(FRAME, director.speed, 4, false)
+    .filter((event) => event.type === 'cyber-catcher'), [
+    { type: 'cyber-catcher', offset: 0 },
+  ]);
+  assert.deepEqual(director.update(FRAME, director.speed, 5, false)
+    .filter((event) => event.type === 'cyber-catcher'), []);
+  assert.deepEqual(director.update(FRAME, director.speed, 5, true)
+    .filter((event) => event.type === 'cyber-catcher'), []);
+
+  director.update(FRAME, director.speed, 1, false);
+  assert.equal(director.catcherSummoned, false);
+  assert.equal(director.update(FRAME, director.speed, 4, false)
+    .filter((event) => event.type === 'cyber-catcher').length, 1);
+});

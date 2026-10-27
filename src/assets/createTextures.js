@@ -124,6 +124,45 @@ export function createTextures(scene) {
     shape(ctx, [[69, 57], [79, 57], [74, 75]], '#ff20b7');
   });
 
+  make('human-catcher', 112, 190, ctx => {
+    ctx.lineJoin = 'round';
+    ctx.shadowColor = '#ff304f';
+    ctx.shadowBlur = 14;
+    shape(ctx, [[47, 12], [67, 12], [76, 27], [70, 48], [45, 48], [37, 29]], '#170b1b', '#ff304f', 3);
+    shape(ctx, [[31, 53], [78, 51], [88, 104], [70, 126], [41, 124], [23, 101]], '#1a0b21', '#ff304f', 4);
+    line(ctx, [[32, 64], [12, 92], [20, 126]], '#2b1029', 12);
+    line(ctx, [[78, 64], [98, 91], [91, 124]], '#2b1029', 12);
+    line(ctx, [[45, 121], [35, 174], [21, 184]], '#1a0b21', 15);
+    line(ctx, [[67, 121], [78, 174], [94, 184]], '#1a0b21', 15);
+    ctx.shadowBlur = 6;
+    shape(ctx, [[42, 27], [71, 25], [68, 36], [45, 38]], '#050711', '#ff667d', 2);
+    line(ctx, [[47, 31], [66, 29]], '#ffccd3', 3);
+    line(ctx, [[35, 64], [75, 61]], '#ff304f', 3);
+    line(ctx, [[39, 78], [79, 76]], '#ff6b81', 2);
+    ctx.fillStyle = '#ff304f';
+    ctx.fillRect(84, 92, 12, 18);
+  });
+
+  make('emp-net', 72, 72, ctx => {
+    ctx.shadowColor = '#ff304f';
+    ctx.shadowBlur = 12;
+    ctx.strokeStyle = '#ff304f';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(36, 36, 29, 0, Math.PI * 2);
+    ctx.stroke();
+    for (const offset of [19, 28, 36, 44, 53]) {
+      line(ctx, [[13, offset], [59, 72 - offset]], '#ff8b9d', 1.5);
+      line(ctx, [[offset, 13], [72 - offset, 59]], '#ff8b9d', 1.5);
+    }
+    for (const [x, y] of [[36, 7], [65, 36], [36, 65], [7, 36]]) {
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.arc(x, y, 3.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  });
+
   for (const [key, size] of [['spark', 32], ['glow', 128]]) {
     make(key, size, size, ctx => {
       const gradient = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);

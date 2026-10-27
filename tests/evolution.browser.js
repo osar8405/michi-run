@@ -21,6 +21,7 @@ export async function runEvolutionChecks(page) {
     const clear = () => {
       scene.dogs.clear(true, true);
       for (const pickup of scene.pickups.getChildren().slice()) scene.removePickup(pickup);
+      scene.despawnCatcher();
       player.clearWeapons();
       player.endAttack();
       scene.overdriveActive = false;
@@ -48,6 +49,15 @@ export async function runEvolutionChecks(page) {
       dog.body.updateFromGameObject();
       dog.body.prevFrame.copy(dog.body.position);
       return dog;
+    };
+    const spawnEmp = () => {
+      const net = scene.empNets.create(player.body.center.x, player.body.center.y, 'emp-net');
+      net.setDisplaySize(68, 68);
+      net.body.setAllowGravity(false).setImmovable(true);
+      net.body.setCircle(net.width * 0.32, net.width * 0.18, net.height * 0.18);
+      net.body.updateFromGameObject();
+      net.expiresAt = Infinity;
+      return net;
     };
 
     game.loop.sleep();
@@ -149,6 +159,33 @@ export async function runEvolutionChecks(page) {
       close(player.body.width, baseWidth * 2, 'Apex collider doubles');
       step(10);
       check(player.evolutionAura.commandBuffer.length > 0, 'procedural Apex mane is drawn');
+      check(scene.catcher?.active && scene.catcher.texture.key === 'human-catcher', 'Cyber-Catcher spawns behind levels 4–5');
+      check(scene.textures.exists('emp-net'), 'EMP net uses a procedural texture');
+      scene.catcher.nextThrowAt = Infinity;
+      step(30);
+      const chaseX = scene.catcher.x;
+      player.dashReadyAt = 0;
+      player.dash();
+      const harmlessNet = spawnEmp();
+      step();
+      check(player.currentEvolutionLevel === 5, 'dash evades an overlapping EMP net');
+      check(scene.catcher.x < chaseX, 'dash forces the Cyber-Catcher to fall back');
+      harmlessNet.destroy();
+      step(12);
+      scene.shield = true;
+      scene.overdriveActive = true;
+      scene.overdriveUntil = scene.playTime + 5000;
+      player.invincibleUntil = Infinity;
+      spawnEmp();
+      step();
+      check(player.currentEvolutionLevel === 1 && !player.isDead, 'EMP strips every evolved stage at once');
+      check(scene.shield && scene.overdriveActive, 'EMP bypasses active protection instead of consuming it');
+      check(!scene.catcher && scene.empNets.getLength() === 0, 'Cyber-Catcher leaves after the forced downgrade');
+      step(20);
+      check(scene.hitStopRemaining === 0, 'EMP hit-stop restores the simulation clock');
+      player.invincibleUntil = 0;
+      while (player.currentEvolutionLevel < 5) player.levelUp();
+      settle();
       clear();
       const roarKills = scene.counts.kills;
       spawn(120, 604, 'hound');
@@ -160,7 +197,8 @@ export async function runEvolutionChecks(page) {
       check(player.attackHitbox.body.width === 1440 && player.attackHitbox.body.height === 810, 'roar uses full-screen Arcade hitbox');
       check(player.projectiles.getLength() === 0, 'roar replaces projectile');
       step();
-      check(scene.counts.kills === roarKills + 3, 'roar clears airborne, rear, and forward enemies');
+      check(scene.counts.kills === roarKills + 3,
+        `roar clears airborne, rear, and forward enemies (${scene.counts.kills - roarKills} kills, ${scene.dogs.getLength()} remain)`);
       check(offscreen.active && scene.dogs.getLength() === 1, 'roar spares offscreen enemies');
       check(player.attack() === false, 'roar cooldown');
       clear();
@@ -184,11 +222,15 @@ export async function runEvolutionChecks(page) {
       step(13);
       check(player.projectiles.getLength() === 0 && player.dashTrails.getLength() === 0, 'base stage loses all evolved weapons');
       player.endAttack();
-      player.invincibleUntil = 0;
+      player.invincibleUntil = Infinity;
+      scene.shield = true;
+      scene.overdriveActive = true;
+      scene.overdriveUntil = scene.playTime + 5000;
       settle();
-      spawn(player.x, player.y);
+      spawnEmp();
       step(2);
-      check(scene.state === 'gameover' && player.isDead && player.health === 0, 'unprotected base contact ends run');
+      check(scene.state === 'gameover' && player.isDead && player.health === 0, 'EMP catches a level 1 cat through all protection');
+      check(scene.shield && scene.overdriveActive, 'fatal EMP does not use normal shield collision rules');
       check(player.currentEvolutionLevel === 1, 'level remains within 1–5 even after death');
     } finally {
       game.loop.wake();

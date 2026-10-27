@@ -46,6 +46,7 @@ La pantalla completa se activa desde el icono de la cabecera. En móviles, la or
 - **Escudo e imán:** absorbe un impacto o atrae fragmentos cercanos.
 - **Misiones y récord:** objetivos durante la carrera y mejor puntuación guardada en el navegador.
 - **Enemigos progresivos:** runners terrestres, hounds que saltan y drones aéreos. El director introduce variantes y oleadas de forma gradual, conservando espacio entre amenazas.
+- **Cyber-Catcher:** al alcanzar nivel 4 o 5, un perseguidor humano aparece por la izquierda, acompasa la altura del jugador y lanza redes EMP. El Dash lo obliga a retroceder; saltar permite esquivar la trayectoria.
 
 El mundo avanza hacia la izquierda; el jugador puede desplazar ligeramente su posición y el dash lo impulsa hacia delante. El suelo, los enemigos y los ataques usan `Phaser.Physics.Arcade`.
 
@@ -61,7 +62,7 @@ La evolución reemplaza las tres vidas. Comienzas en **Cyber-Michi (nivel 1)**. 
 | Plasma Tiger · naranja | 170% | Contacto destruye runners; hounds y drones siguen siendo peligrosos | 42 |
 | Mecha-Solar Lion · blanco/dorado | 200% | Melena de partículas y rugido que cubre la pantalla con F (recarga 1.8 s) | Máximo |
 
-Los poderes anteriores se conservan, excepto que el rugido reemplaza garras y proyectil. Recibir daño baja exactamente una etapa, vacía la carga de evolución, elimina las armas activas y concede **2 segundos de invencibilidad**, con fragmentación de píxeles y cámara lenta de 240 ms. Un impacto sin protección en nivel 1 termina la carrera. Escudo, dash y Overdrive conservan su protección; no hay otra reserva de vidas. En Apex no se acumula carga oculta.
+Los poderes anteriores se conservan, excepto que el rugido reemplaza garras y proyectil. Recibir daño normal baja exactamente una etapa, vacía la carga de evolución, elimina las armas activas y concede **2 segundos de invencibilidad**, con fragmentación de píxeles y cámara lenta de 240 ms. Un impacto sin protección en nivel 1 termina la carrera. Escudo, dash y Overdrive conservan su protección frente a enemigos normales; la red EMP del Cyber-Catcher es la excepción: atraviesa esas protecciones, devuelve cualquier evolución al nivel 1 y atrapa de inmediato a un Cyber-Michi. El Dash evita la colisión EMP. En Apex no se acumula carga oculta.
 
 `src/config/evolution.js` concentra etapas, colores, costes y tiempos. `Kitten.levelUp()` aplica una etapa; `addEvolutionCharge()` procesa fragmentos y combos; `takeDamage()` aplica la degradación. La escena resuelve las colisiones de los grupos `projectiles` y `dashTrails` del jugador. Las armas expiran con el reloj de simulación, se congelan en pausa y se destruyen al reiniciar. El collider mantiene los pies y la velocidad al cambiar de escala, incluso durante una colisión; las dimensiones del cuerpo permanecen en píxeles de textura para evitar escalarlas dos veces ([API Arcade Body 3.90](https://docs.phaser.io/api-documentation/3.90.0/class/physics-arcade-body)). Todo el arte añadido es procedural y local.
 
@@ -79,6 +80,7 @@ src/
   entities/
     Kitten.js                Física, doble salto, planeo, garras y dash
     Dog.js                   Variantes de enemigos y comportamiento
+    HumanCatcher.js          Persecución por la izquierda y lanzamiento de redes EMP
   systems/
     InputController.js       Pulsaciones por frame, teclas mantenidas y multitouch
     RunDirector.js           Semillas, ritmo de encuentros y dificultad

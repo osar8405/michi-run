@@ -3,6 +3,7 @@ import { GAME, COLORS } from '../config/game.js';
 import { EVOLUTION_RULES } from '../config/evolution.js';
 import { Kitten } from '../entities/Kitten.js';
 import { Dog } from '../entities/Dog.js';
+import { HumanCatcher } from '../entities/HumanCatcher.js';
 import { NeonCity } from '../world/NeonCity.js';
 import { NeonEffects } from '../fx/NeonEffects.js';
 import { InputController } from '../systems/InputController.js';
@@ -67,6 +68,8 @@ export class GameScene extends Phaser.Scene {
     this.physics.add.existing(this.ground, true);
     this.dogs = this.physics.add.group();
     this.pickups = this.physics.add.group({ allowGravity: false, immovable: true });
+    this.empNets = this.physics.add.group({ allowGravity: false, immovable: true });
+    this.catcher = null;
     this.player = new Kitten(this, 340, GAME.groundY - 45);
     this.player.setVisible(false);
     this.player.body.enable = false;
@@ -90,6 +93,8 @@ export class GameScene extends Phaser.Scene {
       (_, dog) => this.state === 'playing' && dog.active && !dog.killed);
     this.physics.add.overlap(this.player, this.pickups, (_, pickup) => this.collectPickup(pickup),
       (_, pickup) => this.state === 'playing' && pickup.active && !pickup.collected);
+    this.physics.add.overlap(this.player, this.empNets, (_, net) => this.onEmpNetCollision(net),
+      (_, net) => this.state === 'playing' && net.active && !this.player.isDashing);
   }
 
   bindLifecycle() {
@@ -210,12 +215,14 @@ export class GameScene extends Phaser.Scene {
       this.ui.toast('OVERDRIVE COMPLETADO. SIGUE BRILLANDO.');
     }
     if (this.combo > 0 && this.playTime > this.comboUntil) this.combo = 0;
-    const events = this.director.update(delta, this.worldSpeed);
+    const events = this.director.update(delta, this.worldSpeed, this.player.currentEvolutionLevel,
+      Boolean(this.catcher?.active));
     this.worldSpeed = this.director.speed + (this.overdriveActive ? 65 : 0);
     this.distance += this.worldSpeed * delta / 1000 / 12;
     this.score += delta / 1000 * 6 * this.multiplier;
     this.city.update(this.ambientTime, delta, this.worldSpeed, { overdrive: this.overdriveActive });
     this.player.update(this.playTime, delta, this.controls);
+    this.catcher?.updatePursuit(this.playTime, delta, this.player);
     for (const dog of this.dogs.getChildren().slice()) dog.updateRun(this.playTime, delta, this.worldSpeed);
     for (const event of events) this.spawnEncounter(event);
     this.updatePickups(delta);
@@ -252,6 +259,10 @@ export class GameScene extends Phaser.Scene {
       }
     } else if (event.type === 'powerup') {
       this.createPickup(GAME.width + event.offset, GAME.groundY - 118, event.powerupType);
+    } else if (event.type === 'cyber-catcher' && !this.catcher?.active) {
+      this.catcher = new HumanCatcher(this, -30, this.player.y, this.empNets);
+      this.effects.burst(30, this.player.y, 0xff304f, 26, 260);
+      this.ui.toast('ALERTA / CYBER-CATCHER EN PERSECUCIÓN');
     }
   }
 
@@ -359,6 +370,33 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  onEmpNetCollision(net) {
+    if (!net.active || this.state !== 'playing' || this.player.isDashing) return;
+    net.destroy();
+    if (!this.player.takeEmpNetHit(this.playTime)) return;
+
+    this.combo = 0;
+    this.audio.play('hit');
+    this.cameras.main.shake(220, 0.012);
+    this.cameras.main.flash(140, 255, 30, 70, false);
+    this.refreshHud();
+    if (this.player.isDead) {
+      this.endRun();
+      this.ui.setText('state-description', 'ATRAPADO POR EL CYBER-CATCHER. LA NOCHE TERMINÓ.');
+      return;
+    }
+
+    this.ui.toast('IMPACTO EMP / EVOLUCIÓN REINICIADA');
+    this.hitStopRemaining = EVOLUTION_RULES.hitStopDuration;
+    this.setSimulationRate(EVOLUTION_RULES.hitStopScale);
+  }
+
+  despawnCatcher() {
+    this.catcher?.retire();
+    this.catcher = null;
+    this.empNets?.clear(true, true);
+  }
+
   defeatDog(dog) {
     if (!dog.active || dog.killed || this.state !== 'playing') return;
     this.combo += 1;
@@ -386,6 +424,7 @@ export class GameScene extends Phaser.Scene {
 
   onEvolutionChanged(level, upgraded) {
     if (this.state !== 'playing') return;
+    if (level < 4) this.despawnCatcher();
     if (upgraded) {
       this.audio.play('powerup');
       this.ui.toast(`EVOLUCIÓN ${level} / ${this.player.evolution.name.toUpperCase()}`);
@@ -488,6 +527,8 @@ export class GameScene extends Phaser.Scene {
     document.removeEventListener('visibilitychange', this.onVisibility);
     this.events.off('player-action', this.onPlayerAction, this);
     this.events.off('evolution-changed', this.onEvolutionChanged, this);
+    this.catcher?.destroy();
+    this.catcher = null;
     this.controls.destroy();
     this.audio.destroy();
     this.effects.destroy();
