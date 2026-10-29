@@ -18,9 +18,17 @@ export async function runEvolutionChecks(page) {
         scene.physics.world.postUpdate();
       }
     };
+    const physicsStep = (frames = 1, delta = 1000 / 60) => {
+      for (let i = 0; i < frames; i++) {
+        scene.physics.world.update(scene.time.now + i * delta, delta);
+        scene.physics.world.postUpdate();
+      }
+    };
     const clear = () => {
       scene.dogs.clear(true, true);
       for (const pickup of scene.pickups.getChildren().slice()) scene.removePickup(pickup);
+      scene.clearBeeSwarm();
+      scene.clearBalconies();
       scene.despawnCatcher();
       player.clearWeapons();
       player.endAttack();
@@ -32,14 +40,18 @@ export async function runEvolutionChecks(page) {
       player.evolutionCharge = 0;
       player.invincibleUntil = 0;
     };
+    const placeFeet = (feetY, x = 340) => {
+      const feet = (player.body.offset.y + player.body.sourceHeight - player.displayOriginY) * player.scaleY;
+      player.setPosition(x, feetY - feet).setVelocity(0, 0);
+      player.body.updateFromGameObject();
+      player.body.prev.copy(player.body.position);
+      player.body.prevFrame.copy(player.body.position);
+    };
     const settle = () => {
       player.isDashing = false;
       player.hurtUntil = 0;
       player.body.setAllowGravity(true).setGravityY(0);
-      const feet = (player.body.offset.y + player.body.sourceHeight - player.displayOriginY) * player.scaleY;
-      player.setPosition(340, 638 - feet).setVelocity(0, 0);
-      player.body.updateFromGameObject();
-      player.body.prevFrame.copy(player.body.position);
+      placeFeet(638);
       step(3);
     };
     const spawn = (x, y, type = 'runner') => {
@@ -62,13 +74,55 @@ export async function runEvolutionChecks(page) {
 
     game.loop.sleep();
     try {
-      scene.director.nextDog = scene.director.nextOrbs = scene.director.nextPowerup = Infinity;
+      scene.director.nextDog = scene.director.nextOrbs = scene.director.nextPowerup
+        = scene.director.nextBee = scene.director.nextBalconies = Infinity;
       scene.controls.clear();
       clear();
       settle();
       check(player.currentEvolutionLevel === 1, 'base stage starts at 1');
       const baseWidth = player.body.width;
       const baseHeight = player.body.height;
+
+      scene.spawnEncounter({
+        type: 'balconies',
+        offset: 0,
+        platforms: [{ offset: 0, floor: 1, width: 420, color: 'cyan' }],
+      });
+      const balcony = scene.balconyGroup.getChildren().at(-1);
+      balcony.setPosition(player.x + 180, balcony.y).setVelocity(0, 0);
+      balcony.body.updateFromGameObject();
+      balcony.body.prev.copy(balcony.body.position);
+      balcony.syncGlow();
+      check(balcony.body.checkCollision.up && !balcony.body.checkCollision.down
+        && !balcony.body.checkCollision.left && !balcony.body.checkCollision.right,
+      'Balcony body exposes only its top collision face');
+      const balconyTop = balcony.body.top;
+      player.body.setAllowGravity(true).setGravityY(0);
+      placeFeet(balconyTop + 46);
+      player.setVelocityY(-520);
+      physicsStep(8);
+      check(player.body.bottom < balconyTop && !player.body.blocked.down,
+        'player jumps upward through the Balcony underside');
+      physicsStep(45);
+      check((player.body.blocked.down || player.body.touching.down)
+        && Math.abs(player.body.bottom - balconyTop) < 1,
+      'player lands on the Balcony while descending');
+
+      const balconyDog = spawn(500, balconyTop - 90);
+      balconyDog.setVelocity(0, 0);
+      physicsStep(45);
+      check(balconyDog.body.bottom > balcony.body.bottom + 80,
+        'ground Dogs fall through Balconies instead of climbing them');
+
+      scene.spawnEncounter({ type: 'neon-bee', edge: 'right', position: 0.5, offset: 0 });
+      const balconyBee = scene.bees.getChildren().at(-1);
+      balconyBee.setPosition(player.x + 220, 600);
+      balconyBee.body.updateFromGameObject();
+      balconyBee.updateFlight(scene.playTime, 1000 / 60, player);
+      check(balconyBee.body.velocity.y < 0, 'Neon Bees pursue players on the vertical route');
+      clear();
+      settle();
+
       player.evolutionCharge = 11;
       scene.createPickup(player.body.center.x, player.body.center.y, 'neon-shard');
       step();
@@ -122,6 +176,35 @@ export async function runEvolutionChecks(page) {
       spawn(player.x, 604);
       step(2);
       check(player.currentEvolutionLevel === 4 && scene.dogs.getLength() === 0, 'passive armor kills runner without attacking');
+
+      clear();
+      player.evolutionCharge = 5;
+      scene.energy = 50;
+      scene.director.nextBee = Infinity;
+      scene.director.beeLevel = 4;
+      scene.spawnEncounter({ type: 'neon-bee', edge: 'right', position: 0.5, offset: 0 });
+      const bee = scene.bees.getChildren().at(-1);
+      check(scene.textures.exists('neon-bee') && bee.trail.blendMode === bee.blendMode,
+        'Neon Bee uses procedural additive visuals');
+      bee.setPosition(player.body.center.x, player.body.center.y);
+      bee.body.updateFromGameObject();
+      bee.body.prevFrame.copy(bee.body.position);
+      const beeLevel = player.currentEvolutionLevel;
+      step(2);
+      check(bee.attached && !bee.body.enable && player.currentEvolutionLevel === beeLevel,
+        'Bee contact attaches without downgrading evolution');
+      const energyBeforeDrain = scene.energy;
+      const chargeBeforeDrain = player.evolutionCharge;
+      step(75);
+      check(scene.energy < energyBeforeDrain && player.evolutionCharge < chargeBeforeDrain,
+        'attached Bee drains Overdrive and evolution charge over time');
+      check(bee.trail.commandBuffer.length > 0, 'attached Bee keeps a glowing Graphics trail');
+      player.dashReadyAt = 0;
+      player.dash();
+      check(!bee.active && scene.bees.getLength() === 0, 'Dash shakes off and destroys attached Bees');
+      step(13);
+      settle();
+
       clear();
       spawn(player.x, player.y, 'hound');
       step();
@@ -232,6 +315,20 @@ export async function runEvolutionChecks(page) {
       check(scene.state === 'gameover' && player.isDead && player.health === 0, 'EMP catches a level 1 cat through all protection');
       check(scene.shield && scene.overdriveActive, 'fatal EMP does not use normal shield collision rules');
       check(player.currentEvolutionLevel === 1, 'level remains within 1–5 even after death');
+      const shareText = `I survived the Neon City and reached Evolution Level 1 with a score of ${Math.floor(scene.score)} in Michi Run! Can you beat me?`;
+      check(document.querySelector('#share-record')?.dataset.ui === 'share', 'game over injects the SHARE RECORD button');
+      check(scene.getShareText() === shareText, 'share copy captures the final evolution level and score');
+      const originalOpen = window.open;
+      let intentUrl = '';
+      window.open = (url) => {
+        intentUrl = String(url);
+        return { opener: null };
+      };
+      check(scene.openShareFallback(shareText), 'desktop sharing opens the Twitter/X fallback');
+      window.open = originalOpen;
+      const intent = new URL(intentUrl);
+      check(intent.hostname === 'twitter.com' && intent.searchParams.get('text') === shareText,
+        'fallback preserves the dynamic share text');
     } finally {
       game.loop.wake();
     }

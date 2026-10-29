@@ -51,11 +51,15 @@ export class HumanCatcher extends Phaser.Physics.Arcade.Sprite {
     const horizontalLimit = player.isDashing ? 460 : 95;
     this.setVelocityX(Phaser.Math.Clamp((targetX - this.x) * horizontalGain, -horizontalLimit, horizontalLimit));
 
-    const targetY = Phaser.Math.Clamp(player.body.center.y - 40, 90, GAME.groundY - 85);
-    this.setVelocityY(Phaser.Math.Clamp((targetY - this.y) * 4.2, -420, 420));
+    const targetY = GAME.groundY - CATCHER.height * 0.5 + Math.sin(time * 0.004 + this.hoverPhase) * 5;
+    this.setVelocityY(Phaser.Math.Clamp((targetY - this.y) * 4.2, -120, 120));
     this.rotation = Math.sin(time * 0.006 + this.hoverPhase) * 0.035;
 
-    if (!player.isDashing && this.x > -10 && time >= this.nextThrowAt) this.throwNet(time, player);
+    const playerOnGroundRoute = player.body.bottom >= GAME.groundY - 125;
+    if (!playerOnGroundRoute) this.nextThrowAt = Math.max(this.nextThrowAt, time + 350);
+    if (playerOnGroundRoute && !player.isDashing && this.x > -10 && time >= this.nextThrowAt) {
+      this.throwNet(time, player);
+    }
     this.updateNets(time);
   }
 

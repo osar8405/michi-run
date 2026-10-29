@@ -1,4 +1,9 @@
 const SECTORS = ['NEO TOKIO', 'NEON EXPRESS', 'SKYLINE SECTOR'];
+const BALCONY_PATTERNS = Object.freeze([
+  Object.freeze({ name: 'staircase', floors: Object.freeze([1, 2, 3]) }),
+  Object.freeze({ name: 'switchback', floors: Object.freeze([1, 2, 1, 2, 3]) }),
+  Object.freeze({ name: 'skyline', floors: Object.freeze([1, 2, 2, 3]) }),
+]);
 
 function normalizeSeed(seed) {
   if (typeof seed === 'number') return seed >>> 0;
@@ -22,6 +27,9 @@ export class RunDirector {
     this.nextDog = 2400;
     this.nextOrbs = 900;
     this.nextPowerup = 11000;
+    this.nextBee = null;
+    this.nextBalconies = 5200;
+    this.beeLevel = 0;
     this.waveCount = 0;
     this.catcherSummoned = false;
   }
@@ -47,7 +55,7 @@ export class RunDirector {
     return { index, name: SECTORS[index % SECTORS.length] };
   }
 
-  update(delta, worldSpeed = this.speed, evolutionLevel = 1, catcherActive = false) {
+  update(delta, worldSpeed = this.speed, evolutionLevel = 1, catcherActive = false, activeBeeCount = 0) {
     if (!Number.isFinite(delta) || delta <= 0) return [];
     // A recovered browser tab must not dump a backlog of encounters on the player.
     const step = Math.min(delta, 100);
@@ -55,6 +63,7 @@ export class RunDirector {
     this.nextDog -= step;
     this.nextOrbs -= step;
     this.nextPowerup -= step;
+    this.nextBalconies -= step;
     const events = [];
     const seconds = this.runElapsed / 1000;
 
@@ -65,6 +74,33 @@ export class RunDirector {
     } else if (!this.catcherSummoned) {
       events.push({ type: 'cyber-catcher', offset: 0 });
       this.catcherSummoned = true;
+    }
+
+    if (evolutionLevel < 4) {
+      this.nextBee = null;
+      this.beeLevel = 0;
+    } else {
+      const level = evolutionLevel >= 5 ? 5 : 4;
+      if (this.nextBee === null) {
+        this.nextBee = level === 5 ? 420 : 900;
+      } else if (level > this.beeLevel && Number.isFinite(this.nextBee)) {
+        this.nextBee = Math.min(this.nextBee, 420);
+      }
+      this.beeLevel = level;
+      this.nextBee -= step;
+
+      const swarmLimit = level === 5 ? 10 : 6;
+      if (this.nextBee <= 0 && Math.max(0, Number(activeBeeCount) || 0) < swarmLimit) {
+        events.push({
+          type: 'neon-bee',
+          edge: this.random() < 0.38 ? 'top' : 'right',
+          position: 0.12 + this.random() * 0.76,
+          offset: Math.round(this.random() * 90),
+        });
+        this.nextBee = level === 5
+          ? 620 + this.random() * 380
+          : 1800 + this.random() * 700;
+      }
     }
 
     if (this.nextDog <= 0) {
@@ -101,6 +137,25 @@ export class RunDirector {
         offset: 150,
       });
       this.nextPowerup = 15500 + this.random() * 5000;
+    }
+
+    if (this.nextBalconies <= 0) {
+      const pattern = BALCONY_PATTERNS[Math.floor(this.random() * BALCONY_PATTERNS.length)];
+      const spacing = Math.round(245 + this.random() * 35);
+      const alternateColor = this.random() < 0.5;
+      const platforms = pattern.floors.map((floor, index) => ({
+        offset: index * spacing,
+        floor,
+        width: Math.round(spacing + 90 + this.random() * 70),
+        color: (index + Number(alternateColor)) % 2 === 0 ? 'cyan' : 'magenta',
+      }));
+      events.push({
+        type: 'balconies',
+        pattern: pattern.name,
+        offset: 120,
+        platforms,
+      });
+      this.nextBalconies = Math.max(7600, 11200 - seconds * 9) + this.random() * 2200;
     }
 
     return events;
