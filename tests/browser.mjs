@@ -49,7 +49,7 @@ try {
   await page.locator('[data-ui="start"]').click();
   await read(() => {
     const s = window.__MICHI_GAME__.scene.getScene('GameScene');
-    s.director.nextDog = s.director.nextOrbs = s.director.nextPowerup = Infinity;
+    s.director.nextDog = s.director.nextOrbs = s.director.nextPowerup = s.director.nextBalconies = Infinity;
   });
   await page.waitForFunction(() => window.__MICHI_GAME__.scene.getScene('GameScene').player.body.blocked.down);
   await page.keyboard.down('ArrowUp');
@@ -128,7 +128,7 @@ try {
     const s = window.__MICHI_GAME__.scene.getScene('GameScene');
     s.dogs.clear(true, true);
     for (const pickup of s.pickups.getChildren().slice()) s.removePickup(pickup);
-    s.director.nextDog = s.director.nextOrbs = s.director.nextPowerup = Infinity;
+    s.director.nextDog = s.director.nextOrbs = s.director.nextPowerup = s.director.nextBalconies = Infinity;
     s.controls.clear();
     s.player.body.reset(340, 604.4);
     s.player.dashReadyAt = 0;

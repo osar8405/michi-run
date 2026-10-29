@@ -68,7 +68,7 @@ export class GameInterface {
     const evolutionHelp = document.createElement("p");
     evolutionHelp.className = "help-note";
     evolutionHelp.textContent =
-      "CYBER-BEAST: fragmentos y combos te llevan de Michi a Lince, Leopardo, Tigre y León. En niveles 4–5 aparece el Cyber-Catcher: salta su red EMP o usa Dash. El EMP atraviesa armadura, escudo y Overdrive, reinicia tu evolución; en nivel 1 te atrapa. Los golpes normales bajan una etapa y dan 2 s de protección.";
+      "CYBER-BEAST: fragmentos y combos te llevan de Michi a Lince, Leopardo, Tigre y León. Salta desde abajo a los Neon Balconies y encadena sus tres pisos para escapar de perros y del Cyber-Catcher; las Neon Bees sí te seguirán por el aire. Si una abeja se adhiere, drenará Evolución y Overdrive hasta que uses Dash para destruirla. La red EMP atraviesa armadura, escudo y Overdrive, reinicia tu evolución y en nivel 1 te atrapa. Los golpes normales bajan una etapa y dan 2 s de protección.";
     this.dialog.querySelector(".help-note").before(evolutionHelp);
     this.handleClick = (event) => {
       const button = event.target.closest("[data-ui]");

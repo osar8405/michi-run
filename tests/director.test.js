@@ -4,11 +4,11 @@ import { RunDirector } from '../src/systems/RunDirector.js';
 
 const FRAME = 1000 / 60;
 
-function simulate(director, seconds, withTiming = false) {
+function simulate(director, seconds, withTiming = false, evolutionLevel = 1, activeBeeCount = 0) {
   const events = [];
   for (let frame = 0; frame < Math.ceil(seconds * 60); frame += 1) {
     const speed = director.speed;
-    for (const event of director.update(FRAME, speed)) {
+    for (const event of director.update(FRAME, speed, evolutionLevel, false, activeBeeCount)) {
       events.push(withTiming ? { ...event, time: director.elapsed, speed } : event);
     }
   }
@@ -86,6 +86,7 @@ test('los eventos mantienen un contrato válido y desbloquean enemigos gradualme
   const events = simulate(new RunDirector(42), 180, true);
   const enemyTypes = new Set();
   const patterns = new Set();
+  const balconyPatterns = new Set();
   const powerups = new Set();
   for (const event of events) {
     assert.ok(Number.isFinite(event.offset) && event.offset >= 0);
@@ -104,6 +105,26 @@ test('los eventos mantienen un contrato válido y desbloquean enemigos gradualme
         assert.ok(['shield', 'magnet'].includes(event.powerupType));
         powerups.add(event.powerupType);
         break;
+      case 'balconies':
+        assert.ok(['staircase', 'switchback', 'skyline'].includes(event.pattern));
+        assert.ok(event.platforms.length >= 3);
+        assert.equal(event.platforms[0].floor, 1);
+        assert.equal(event.platforms.at(-1).floor, 3);
+        event.platforms.forEach((platform, index) => {
+          assert.ok([1, 2, 3].includes(platform.floor));
+          assert.ok(platform.width >= 335 && platform.width <= 440);
+          assert.ok(['cyan', 'magenta'].includes(platform.color));
+          if (index > 0) {
+            const previous = event.platforms[index - 1];
+            assert.ok(platform.offset > previous.offset);
+            assert.ok(platform.offset < previous.offset + previous.width,
+              'Los balcones consecutivos deben solaparse horizontalmente.');
+            assert.ok(Math.abs(platform.floor - previous.floor) <= 1,
+              'Los pisos consecutivos deben ser alcanzables.');
+          }
+        });
+        balconyPatterns.add(event.pattern);
+        break;
       default:
         assert.fail(`Evento desconocido: ${event.type}`);
     }
@@ -111,6 +132,7 @@ test('los eventos mantienen un contrato válido y desbloquean enemigos gradualme
   assert.deepEqual([...enemyTypes].sort(), ['drone', 'hound', 'runner']);
   assert.deepEqual([...patterns].sort(), ['arc', 'high', 'line']);
   assert.deepEqual([...powerups].sort(), ['magnet', 'shield']);
+  assert.ok(balconyPatterns.size >= 2);
 });
 
 test('un frame inválido o una pestaña recuperada no descarga una cola de enemigos', () => {
@@ -143,4 +165,46 @@ test('el Cyber-Catcher aparece una vez por cada estancia en niveles 4–5', () =
   assert.equal(director.catcherSummoned, false);
   assert.equal(director.update(FRAME, director.speed, 4, false)
     .filter((event) => event.type === 'cyber-catcher').length, 1);
+});
+
+test('el Cyber-Swarm se desbloquea en nivel 4 y acelera con fuerza en nivel 5', () => {
+  const locked = simulate(new RunDirector(42), 20, true, 3)
+    .filter((event) => event.type === 'neon-bee');
+  const level4 = simulate(new RunDirector(42), 20, true, 4)
+    .filter((event) => event.type === 'neon-bee');
+  const level5 = simulate(new RunDirector(42), 20, true, 5)
+    .filter((event) => event.type === 'neon-bee');
+
+  assert.equal(locked.length, 0);
+  assert.ok(level4.length >= 7, 'El nivel 4 debe sostener presión de enjambre.');
+  assert.ok(level5.length >= level4.length * 2, 'El nivel 5 debe al menos duplicar la frecuencia.');
+  for (const event of [...level4, ...level5]) {
+    assert.ok(['top', 'right'].includes(event.edge));
+    assert.ok(event.position >= 0.12 && event.position <= 0.88);
+    assert.ok(Number.isFinite(event.offset) && event.offset >= 0);
+  }
+
+  const capped = new RunDirector(42);
+  assert.equal(simulate(capped, 5, false, 4, 6)
+    .filter((event) => event.type === 'neon-bee').length, 0);
+  assert.ok(capped.nextBee <= 0, 'El siguiente enjambre queda listo mientras el límite está lleno.');
+  assert.equal(capped.update(FRAME, capped.speed, 4, true, 5)
+    .filter((event) => event.type === 'neon-bee').length, 1);
+});
+
+test('los Neon Balconies forman rutas solapadas desde el piso 1 hasta el 3', () => {
+  const events = simulate(new RunDirector(84), 45, true)
+    .filter((event) => event.type === 'balconies');
+  assert.ok(events.length >= 3);
+  assert.ok(events[0].time >= 5200 && events[0].time <= 5200 + FRAME);
+  for (const event of events) {
+    assert.equal(event.platforms[0].floor, 1);
+    assert.equal(event.platforms.at(-1).floor, 3);
+    for (let index = 1; index < event.platforms.length; index += 1) {
+      const previous = event.platforms[index - 1];
+      const current = event.platforms[index];
+      assert.ok(current.offset < previous.offset + previous.width);
+      assert.ok(Math.abs(current.floor - previous.floor) <= 1);
+    }
+  }
 });

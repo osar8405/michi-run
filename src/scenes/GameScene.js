@@ -4,6 +4,8 @@ import { EVOLUTION_RULES } from '../config/evolution.js';
 import { Kitten } from '../entities/Kitten.js';
 import { Dog } from '../entities/Dog.js';
 import { HumanCatcher } from '../entities/HumanCatcher.js';
+import { NeonBee, NEON_BEE_RULES } from '../entities/NeonBee.js';
+import { NeonBalcony } from '../entities/NeonBalcony.js';
 import { NeonCity } from '../world/NeonCity.js';
 import { NeonEffects } from '../fx/NeonEffects.js';
 import { InputController } from '../systems/InputController.js';
@@ -17,6 +19,11 @@ const MISSIONS = [
   { key: 'distance', goal: 1000, text: 'Recorre 1,000 metros más' },
   { key: 'dashes', goal: 8, text: 'Activa 8 neon dashes' },
 ];
+const BALCONY_FLOOR_TOPS = Object.freeze({
+  1: GAME.groundY - 132,
+  2: GAME.groundY - 264,
+  3: GAME.groundY - 396,
+});
 
 export class GameScene extends Phaser.Scene {
   constructor() { super('GameScene'); }
@@ -46,6 +53,10 @@ export class GameScene extends Phaser.Scene {
     this.lastDriveTrailAt = 0;
     this.helpWasPlaying = false;
     this.hitStopRemaining = 0;
+    this.swarmChargeDrain = 0;
+    this.lastSwarmWarningAt = -Infinity;
+    this.finalRecord = null;
+    this.shareButton = null;
     this.time.timeScale = 1;
     this.tweens.timeScale = 1;
     this.tweens.resumeAll();
@@ -67,6 +78,8 @@ export class GameScene extends Phaser.Scene {
     this.ground = this.add.zone(GAME.width / 2, GAME.groundY + 60, GAME.width * 2, 120);
     this.physics.add.existing(this.ground, true);
     this.dogs = this.physics.add.group();
+    this.bees = this.physics.add.group({ allowGravity: false });
+    this.balconyGroup = this.physics.add.group({ allowGravity: false, immovable: true });
     this.pickups = this.physics.add.group({ allowGravity: false, immovable: true });
     this.empNets = this.physics.add.group({ allowGravity: false, immovable: true });
     this.catcher = null;
@@ -77,6 +90,7 @@ export class GameScene extends Phaser.Scene {
       .setTint(COLORS.cyan).setAlpha(0).setDepth(17).setBlendMode(Phaser.BlendModes.ADD);
     this.shieldRing = this.add.graphics().setDepth(32).setBlendMode(Phaser.BlendModes.ADD);
     this.physics.add.collider(this.player, this.ground);
+    this.physics.add.collider(this.player, this.balconyGroup, null, this.canLandOnBalcony, this);
     this.physics.add.collider(this.dogs, this.ground);
 
     // Attack overlap is registered before contact damage. Both callbacks check live state.
@@ -91,6 +105,8 @@ export class GameScene extends Phaser.Scene {
       (trail, dog) => this.state === 'playing' && trail.active && dog.active && !dog.killed);
     this.physics.add.overlap(this.player, this.dogs, (_, dog) => this.onEnemyContact(dog),
       (_, dog) => this.state === 'playing' && dog.active && !dog.killed);
+    this.physics.add.overlap(this.player, this.bees, (_, bee) => this.onBeeContact(bee),
+      (_, bee) => this.state === 'playing' && bee.active && !bee.attached);
     this.physics.add.overlap(this.player, this.pickups, (_, pickup) => this.collectPickup(pickup),
       (_, pickup) => this.state === 'playing' && pickup.active && !pickup.collected);
     this.physics.add.overlap(this.player, this.empNets, (_, net) => this.onEmpNetCollision(net),
@@ -109,6 +125,7 @@ export class GameScene extends Phaser.Scene {
       if (action === 'resume') this.resumeRun();
       if (action === 'menu') this.scene.restart({ autoStart: false });
       if (action === 'mute') this.ui.setMuted(this.audio.toggleMute());
+      if (action === 'share') void this.shareRecord();
       if (action === 'help') {
         this.helpWasPlaying = this.state === 'playing';
         if (this.helpWasPlaying) this.pauseRun();
@@ -216,7 +233,7 @@ export class GameScene extends Phaser.Scene {
     }
     if (this.combo > 0 && this.playTime > this.comboUntil) this.combo = 0;
     const events = this.director.update(delta, this.worldSpeed, this.player.currentEvolutionLevel,
-      Boolean(this.catcher?.active));
+      Boolean(this.catcher?.active), this.bees.countActive(true));
     this.worldSpeed = this.director.speed + (this.overdriveActive ? 65 : 0);
     this.distance += this.worldSpeed * delta / 1000 / 12;
     this.score += delta / 1000 * 6 * this.multiplier;
@@ -224,10 +241,15 @@ export class GameScene extends Phaser.Scene {
     this.player.update(this.playTime, delta, this.controls);
     this.catcher?.updatePursuit(this.playTime, delta, this.player);
     for (const dog of this.dogs.getChildren().slice()) dog.updateRun(this.playTime, delta, this.worldSpeed);
+    for (const balcony of this.balconyGroup.getChildren().slice()) {
+      balcony.updateRun(this.playTime, this.worldSpeed);
+    }
+    this.updateBeeSwarm(delta);
     for (const event of events) this.spawnEncounter(event);
     this.updatePickups(delta);
     // Physics and action timers share the same bounded step on slow devices.
     this.physics.world.update(_time, delta);
+    for (const balcony of this.balconyGroup.getChildren()) balcony.syncGlow();
     if (this.state !== 'playing') { this.controls.endFrame(); return; }
     this.updatePlayerLight();
     this.updateMission();
@@ -246,6 +268,12 @@ export class GameScene extends Phaser.Scene {
 
   get multiplier() { return Math.min(8, Math.max(1, this.combo)) * (this.overdriveActive ? 2 : 1); }
 
+  canLandOnBalcony(player, balcony) {
+    if (this.state !== 'playing' || !player.body || !balcony.active || !balcony.body) return false;
+    const previousBottom = player.body.prev.y + player.body.height;
+    return player.body.velocity.y >= 0 && previousBottom <= balcony.body.top + 12;
+  }
+
   spawnEncounter(event) {
     if (event.type === 'dog') {
       const dog = new Dog(this, GAME.width + event.offset, event.enemyType);
@@ -259,9 +287,42 @@ export class GameScene extends Phaser.Scene {
       }
     } else if (event.type === 'powerup') {
       this.createPickup(GAME.width + event.offset, GAME.groundY - 118, event.powerupType);
+    } else if (event.type === 'balconies') {
+      for (const definition of event.platforms ?? []) {
+        const floor = Phaser.Math.Clamp(Math.round(definition.floor ?? 1), 1, 3);
+        const x = GAME.width + event.offset + Math.max(0, definition.offset ?? 0);
+        const balcony = new NeonBalcony(
+          this,
+          x,
+          BALCONY_FLOOR_TOPS[floor],
+          Phaser.Math.Clamp(definition.width ?? 340, 280, 460),
+          definition.color,
+        );
+        this.balconyGroup.add(balcony);
+        balcony.configureBody();
+        balcony.setVelocityX(-this.worldSpeed);
+      }
+    } else if (event.type === 'neon-bee') {
+      const limit = this.player.currentEvolutionLevel >= 5
+        ? NEON_BEE_RULES.maxActiveLevel5
+        : NEON_BEE_RULES.maxActiveLevel4;
+      if (this.bees.countActive(true) >= limit) return;
+      const position = Phaser.Math.Clamp(event.position ?? 0.5, 0, 1);
+      const offset = Math.max(0, event.offset ?? 0);
+      const fromTop = event.edge === 'top';
+      const x = fromTop
+        ? Phaser.Math.Linear(140, GAME.width - 140, position)
+        : GAME.width + 45 + offset;
+      const y = fromTop
+        ? -45 - offset
+        : Phaser.Math.Linear(90, GAME.groundY - 90, position);
+      const bee = new NeonBee(this, x, y);
+      this.bees.add(bee);
+      this.effects.burst(x, y, COLORS.yellow, 7, 90);
     } else if (event.type === 'cyber-catcher' && !this.catcher?.active) {
-      this.catcher = new HumanCatcher(this, -30, this.player.y, this.empNets);
-      this.effects.burst(30, this.player.y, 0xff304f, 26, 260);
+      const groundLaneY = GAME.groundY - 83;
+      this.catcher = new HumanCatcher(this, -30, groundLaneY, this.empNets);
+      this.effects.burst(30, groundLaneY, 0xff304f, 26, 260);
       this.ui.toast('ALERTA / CYBER-CATCHER EN PERSECUCIÓN');
     }
   }
@@ -338,6 +399,83 @@ export class GameScene extends Phaser.Scene {
     pickup.light?.destroy();
     pickup.label?.destroy();
     pickup.destroy();
+  }
+
+  updateBeeSwarm(delta) {
+    const attached = [];
+    for (const bee of this.bees.getChildren().slice()) {
+      if (!bee.active) continue;
+      bee.updateFlight(this.playTime, delta, this.player);
+      if (bee.attached) attached.push(bee);
+    }
+    if (attached.length === 0) {
+      this.swarmChargeDrain = 0;
+      return;
+    }
+
+    const energyDrain = attached.length * NEON_BEE_RULES.energyDrainPerSecond * delta / 1000;
+    if (this.overdriveActive) {
+      this.overdriveUntil = Math.max(this.playTime, this.overdriveUntil - energyDrain / 100 * 8000);
+      this.energy = Math.max(0, (this.overdriveUntil - this.playTime) / 8000 * 100);
+      if (this.overdriveUntil <= this.playTime) {
+        this.overdriveActive = false;
+        this.overdriveUntil = 0;
+        this.energy = 0;
+        this.audio.setIntensity(false);
+        this.ui.toast('CYBER-SWARM DRENÓ EL OVERDRIVE.');
+      }
+    } else {
+      this.energy = Math.max(0, this.energy - energyDrain);
+    }
+
+    if (this.player.evolution.shards > 0 && this.player.evolutionCharge > 0) {
+      this.swarmChargeDrain += attached.length * NEON_BEE_RULES.evolutionDrainPerSecond * delta / 1000;
+      const chargeDrain = Math.min(this.player.evolutionCharge, Math.floor(this.swarmChargeDrain));
+      if (chargeDrain > 0) {
+        this.player.evolutionCharge -= chargeDrain;
+        this.swarmChargeDrain -= chargeDrain;
+      }
+    } else {
+      this.swarmChargeDrain = 0;
+    }
+  }
+
+  onBeeContact(bee) {
+    if (!bee.active || bee.attached || this.state !== 'playing') return;
+    if (this.player.isDashing) {
+      bee.shakeOff();
+      return;
+    }
+
+    const slot = this.bees.getChildren().filter((candidate) => candidate.attached).length;
+    if (!bee.attachTo(this.player, slot, this.playTime)) return;
+    this.audio.play('hit');
+    this.effects.burst(this.player.x, this.player.y, 0xff304f, 18, 150);
+    this.cameras.main.flash(90, 255, 35, 20, false);
+    if (this.playTime - this.lastSwarmWarningAt > 1200) {
+      this.lastSwarmWarningAt = this.playTime;
+      this.ui.toast('CYBER-SWARM ADHERIDO / USA DASH PARA PURGARLO');
+    }
+  }
+
+  shakeOffAttachedBees() {
+    const attached = this.bees.getChildren().filter((bee) => bee.active && bee.attached);
+    if (attached.length === 0) return;
+    for (const bee of attached) bee.shakeOff();
+    this.swarmChargeDrain = 0;
+    this.cameras.main.shake(100, 0.004);
+    this.ui.toast(`DASH PURGA / ${attached.length} ${attached.length === 1 ? 'ABEJA' : 'ABEJAS'} DESTRUIDAS`);
+  }
+
+  clearBeeSwarm() {
+    if (!this.bees?.children) return;
+    for (const bee of this.bees.getChildren().slice()) bee.retire();
+    this.swarmChargeDrain = 0;
+  }
+
+  clearBalconies() {
+    if (!this.balconyGroup?.children) return;
+    for (const balcony of this.balconyGroup.getChildren().slice()) balcony.retire();
   }
 
   onEnemyContact(dog) {
@@ -424,7 +562,10 @@ export class GameScene extends Phaser.Scene {
 
   onEvolutionChanged(level, upgraded) {
     if (this.state !== 'playing') return;
-    if (level < 4) this.despawnCatcher();
+    if (level < 4) {
+      this.despawnCatcher();
+      this.clearBeeSwarm();
+    }
     if (upgraded) {
       this.audio.play('powerup');
       this.ui.toast(`EVOLUCIÓN ${level} / ${this.player.evolution.name.toUpperCase()}`);
@@ -450,7 +591,10 @@ export class GameScene extends Phaser.Scene {
 
   onPlayerAction(action) {
     if (this.state !== 'playing') return;
-    if (action === 'dash') this.counts.dashes += 1;
+    if (action === 'dash') {
+      this.counts.dashes += 1;
+      this.shakeOffAttachedBees();
+    }
   }
 
   updatePlayerLight() {
@@ -505,10 +649,15 @@ export class GameScene extends Phaser.Scene {
   endRun() {
     if (this.state !== 'playing') return;
     this.state = 'gameover';
+    this.finalRecord = {
+      evolutionLevel: this.player.currentEvolutionLevel,
+      score: Math.floor(this.score),
+    };
     this.hitStopRemaining = 0;
     this.setSimulationRate(1);
     this.physics.pause();
     this.player.stop();
+    this.clearBeeSwarm();
     this.shieldRing.clear();
     this.controls.clear();
     this.audio.pause();
@@ -518,7 +667,93 @@ export class GameScene extends Phaser.Scene {
     this.ui.setMode('gameover');
     this.ui.results({ score: this.score, distance: this.distance, maxCombo: this.maxCombo });
     this.ui.setBest(this.progress.save(this.score));
+    this.showShareButton();
     if (this.score > previousBest) this.ui.setText('state-description', 'NUEVO RÉCORD. ESTA NOCHE TIENE TU NOMBRE.');
+  }
+
+  showShareButton() {
+    const primary = this.ui.root?.querySelector('#state-primary');
+    if (!primary) {
+      console.error('Unable to mount the share button: game-over panel was not found.');
+      return;
+    }
+
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.id = 'share-record';
+    button.className = 'start-button';
+    button.dataset.ui = 'share';
+    button.setAttribute('aria-label', 'Compartir récord');
+    Object.assign(button.style, {
+      margin: '14px auto 0',
+      minWidth: '275px',
+      background: 'var(--cyan)',
+      boxShadow: '0 0 28px #00f3ff2e',
+    });
+    for (const text of ['//', 'SHARE RECORD', '>']) {
+      const span = document.createElement('span');
+      span.textContent = text;
+      if (text !== 'SHARE RECORD') span.setAttribute('aria-hidden', 'true');
+      button.append(span);
+    }
+    primary.insertAdjacentElement('afterend', button);
+    this.shareButton = button;
+  }
+
+  getShareText() {
+    const record = this.finalRecord ?? {
+      evolutionLevel: this.player.currentEvolutionLevel,
+      score: Math.floor(this.score),
+    };
+    return `I survived the Neon City and reached Evolution Level ${record.evolutionLevel} with a score of ${record.score} in Michi Run! Can you beat me?`;
+  }
+
+  async shareRecord() {
+    if (this.state !== 'gameover') return;
+    const text = this.getShareText();
+    const shareData = {
+      title: 'Michi Run: Neon Nights',
+      text,
+      url: window.location.href,
+    };
+
+    if (typeof navigator.share === 'function') {
+      if (this.shareButton) this.shareButton.disabled = true;
+      try {
+        await navigator.share(shareData);
+      } catch (error) {
+        if (error?.name !== 'AbortError') {
+          console.error('Native record sharing failed.', error);
+          this.ui.toast('NO SE PUDO ABRIR EL MENÚ DE COMPARTIR.');
+        }
+      } finally {
+        if (this.shareButton?.isConnected) this.shareButton.disabled = false;
+      }
+      return;
+    }
+
+    this.openShareFallback(text);
+  }
+
+  openShareFallback(text) {
+    const intent = new URL('https://twitter.com/intent/tweet');
+    intent.searchParams.set('text', text);
+    intent.searchParams.set('url', window.location.href);
+    let popup;
+    try {
+      popup = window.open(intent.toString(), '_blank', 'popup=yes,width=720,height=540');
+    } catch (error) {
+      console.error('Twitter/X share fallback failed.', error);
+      this.ui.toast('NO SE PUDO ABRIR X. REVISA LOS PERMISOS DEL NAVEGADOR.');
+      return false;
+    }
+    if (!popup) {
+      console.error('Twitter/X share fallback was blocked by the browser.');
+      this.ui.toast('PERMITE VENTANAS EMERGENTES PARA COMPARTIR TU RÉCORD.');
+      return false;
+    }
+    popup.opener = null;
+    return true;
   }
 
   cleanup() {
@@ -527,6 +762,9 @@ export class GameScene extends Phaser.Scene {
     document.removeEventListener('visibilitychange', this.onVisibility);
     this.events.off('player-action', this.onPlayerAction, this);
     this.events.off('evolution-changed', this.onEvolutionChanged, this);
+    this.shareButton?.remove();
+    this.shareButton = null;
+    this.clearBeeSwarm();
     this.catcher?.destroy();
     this.catcher = null;
     this.controls.destroy();

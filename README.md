@@ -46,9 +46,12 @@ La pantalla completa se activa desde el icono de la cabecera. En móviles, la or
 - **Escudo e imán:** absorbe un impacto o atrae fragmentos cercanos.
 - **Misiones y récord:** objetivos durante la carrera y mejor puntuación guardada en el navegador.
 - **Enemigos progresivos:** runners terrestres, hounds que saltan y drones aéreos. El director introduce variantes y oleadas de forma gradual, conservando espacio entre amenazas.
-- **Cyber-Catcher:** al alcanzar nivel 4 o 5, un perseguidor humano aparece por la izquierda, acompasa la altura del jugador y lanza redes EMP. El Dash lo obliga a retroceder; saltar permite esquivar la trayectoria.
+- **Cyber-Catcher:** al alcanzar nivel 4 o 5, un perseguidor humano aparece por la izquierda y permanece en el carril terrestre. Lanza redes EMP contra jugadores que siguen cerca del suelo; el Dash lo obliga a retroceder y las rutas elevadas permiten escapar de su alcance.
+- **Cyber-Swarm:** desde nivel 4 aparecen Neon Bees procedurales que entran por arriba o por la derecha y persiguen al jugador con vuelo ondulante. En nivel 5 aumenta fuertemente la frecuencia del enjambre. Al tocar al jugador se adhieren sin bajar su evolución, parpadean en rojo y drenan Overdrive y carga evolutiva; un Dash exitoso las sacude y destruye.
+- **Neon Balconies:** el director genera rutas deterministas de balcones cian y magenta que se solapan horizontalmente y ascienden desde el piso 1 hasta el 3. Son plataformas unidireccionales: el jugador atraviesa su parte inferior al saltar y aterriza sobre ellas al caer. Dogs y Cyber-Catcher permanecen abajo, mientras las Neon Bees continúan siguiendo al jugador en altura.
+- **Compartir récord:** al terminar una carrera, `SHARE RECORD` usa Web Share API para compartir el nivel de evolución y la puntuación final. Si `navigator.share()` no está disponible, abre un intent de Twitter/X con el mismo texto.
 
-El mundo avanza hacia la izquierda; el jugador puede desplazar ligeramente su posición y el dash lo impulsa hacia delante. El suelo, los enemigos y los ataques usan `Phaser.Physics.Arcade`.
+El mundo avanza hacia la izquierda; el jugador puede desplazar ligeramente su posición y el dash lo impulsa hacia delante. Suelo, balcones, enemigos y ataques usan `Phaser.Physics.Arcade`. Los balcones son cuerpos dinámicos inmóviles ante colisiones, sin gravedad, que conservan el desplazamiento horizontal del mundo.
 
 ## Cyber-Beast Evolution
 
@@ -62,7 +65,7 @@ La evolución reemplaza las tres vidas. Comienzas en **Cyber-Michi (nivel 1)**. 
 | Plasma Tiger · naranja | 170% | Contacto destruye runners; hounds y drones siguen siendo peligrosos | 42 |
 | Mecha-Solar Lion · blanco/dorado | 200% | Melena de partículas y rugido que cubre la pantalla con F (recarga 1.8 s) | Máximo |
 
-Los poderes anteriores se conservan, excepto que el rugido reemplaza garras y proyectil. Recibir daño normal baja exactamente una etapa, vacía la carga de evolución, elimina las armas activas y concede **2 segundos de invencibilidad**, con fragmentación de píxeles y cámara lenta de 240 ms. Un impacto sin protección en nivel 1 termina la carrera. Escudo, dash y Overdrive conservan su protección frente a enemigos normales; la red EMP del Cyber-Catcher es la excepción: atraviesa esas protecciones, devuelve cualquier evolución al nivel 1 y atrapa de inmediato a un Cyber-Michi. El Dash evita la colisión EMP. En Apex no se acumula carga oculta.
+Los poderes anteriores se conservan, excepto que el rugido reemplaza garras y proyectil. Recibir daño normal baja exactamente una etapa, vacía la carga de evolución, elimina las armas activas y concede **2 segundos de invencibilidad**, con fragmentación de píxeles y cámara lenta de 240 ms. Un impacto sin protección en nivel 1 termina la carrera. Escudo, dash y Overdrive conservan su protección frente a enemigos normales; la red EMP del Cyber-Catcher es la excepción: atraviesa esas protecciones, devuelve cualquier evolución al nivel 1 y atrapa de inmediato a un Cyber-Michi. El Dash evita la colisión EMP. Las Neon Bees no degradan etapas: consumen gradualmente las dos barras de progreso hasta que el jugador usa Dash. En Apex no se acumula carga oculta.
 
 `src/config/evolution.js` concentra etapas, colores, costes y tiempos. `Kitten.levelUp()` aplica una etapa; `addEvolutionCharge()` procesa fragmentos y combos; `takeDamage()` aplica la degradación. La escena resuelve las colisiones de los grupos `projectiles` y `dashTrails` del jugador. Las armas expiran con el reloj de simulación, se congelan en pausa y se destruyen al reiniciar. El collider mantiene los pies y la velocidad al cambiar de escala, incluso durante una colisión; las dimensiones del cuerpo permanecen en píxeles de textura para evitar escalarlas dos veces ([API Arcade Body 3.90](https://docs.phaser.io/api-documentation/3.90.0/class/physics-arcade-body)). Todo el arte añadido es procedural y local.
 
@@ -80,10 +83,12 @@ src/
   entities/
     Kitten.js                Física, doble salto, planeo, garras y dash
     Dog.js                   Variantes de enemigos y comportamiento
-    HumanCatcher.js          Persecución por la izquierda y lanzamiento de redes EMP
+    HumanCatcher.js          Persecución terrestre y lanzamiento de redes EMP
+    NeonBee.js               Enjambre aéreo, adhesión, drenaje y estelas aditivas
+    NeonBalcony.js           Plataforma unidireccional y arte procedural
   systems/
     InputController.js       Pulsaciones por frame, teclas mantenidas y multitouch
-    RunDirector.js           Semillas, ritmo de encuentros y dificultad
+    RunDirector.js           Semillas, encuentros, enjambres y rutas verticales
     SynthAudio.js            Secuenciador Web Audio y efectos
     ProgressStore.js         Récord local con fallback en memoria
   world/NeonCity.js           Ciudad, paralaje, luces y cuadrícula
@@ -103,7 +108,7 @@ tests/
 
 El archivo original `michi-run.html` se conserva como referencia. La nueva aplicación entra por `index.html`.
 
-Para ajustar la sensación de movimiento, comienza en `src/config/game.js`. Los tiempos y velocidades del protagonista están concentrados en `Kitten.js`; los ritmos de enemigos, rutas de energía y powerups están en `RunDirector.js`. El director no depende de Phaser y acepta una semilla para reproducir una carrera.
+Para ajustar la sensación de movimiento, comienza en `src/config/game.js`. Los tiempos y velocidades del protagonista están concentrados en `Kitten.js`; los ritmos de enemigos, rutas de energía, powerups, enjambres y balcones están en `RunDirector.js`. El director no depende de Phaser, acepta una semilla para reproducir una carrera y emite descripciones de encuentros que `GameScene` convierte en entidades Arcade.
 
 `InputController.pressed()` conserva una pulsación durante el frame; `held()` consulta el estado continuo. `endFrame()` libera las pulsaciones y `clear()` impide que un botón usado en el menú se convierta en una acción al comenzar la carrera.
 
@@ -125,11 +130,23 @@ npm run build
 npm run test:browser
 ```
 
-Las pruebas de Node verifican el director, teclado y multitouch, pérdida de captura, cambio de pestaña y limpieza del audio. Para `test:browser`, deja `npm run dev` activo en otra terminal. Las pruebas de navegador verifican las mecánicas, reinicios, móvil y el desplazamiento físico con frames lentos. Usa `MICHI_TEST_URL` si Vite eligió otro puerto.
+Las pruebas de Node verifican el director, las rutas solapadas de balcones, la frecuencia del Cyber-Swarm, teclado y multitouch, pérdida de captura, cambio de pestaña y limpieza del audio. Para `test:browser`, deja `npm run dev` activo en otra terminal. Las pruebas de navegador verifican las mecánicas, reinicios, móvil, compartir récord, adhesión y purga de abejas, salto a través de balcones, aterrizaje descendente, separación de Dogs y persecución aérea, además del desplazamiento físico con frames lentos. Usa `MICHI_TEST_URL` si Vite eligió otro puerto.
 
 Para comprobar la compilación real de producción, ejecuta `npm run build`, deja `npm run preview` activo en otra terminal y después ejecuta `npm run test:production`. Verifica carga de arte y scripts, puntuación, pausa, ayuda y que no se publique el acceso de diagnóstico del modo desarrollo. El preview usa el puerto 4173 por defecto.
 
 La física Arcade se avanza explícitamente desde `GameScene` con el mismo delta limitado que los timers de ataque, dash y Overdrive. Así, un frame lento no desplaza al personaje más tiempo que el que descuentan sus habilidades. Los temporizadores de juego se detienen en pausa.
+
+## Registro de desarrollo
+
+### 2026-10-29 · Dificultad tardía, viralidad y rutas verticales
+
+- Se añadió **Cyber-Swarm** para niveles de evolución 4–5, con generación determinista, persecución aérea senoidal, adhesión parasitaria, drenaje de barras y purga mediante Dash.
+- Se incorporó **SHARE RECORD** en Game Over con Web Share API y fallback de Twitter/X. El texto captura el nivel y la puntuación finales antes de reiniciar la escena.
+- Se añadieron **Neon Balconies** procedurales con tres patrones de ruta: `staircase`, `switchback` y `skyline`. Todas las rutas comienzan en el piso 1, terminan en el piso 3 y mantienen solapamiento horizontal y diferencias de altura alcanzables.
+- La colisión de balcones se restringió a su cara superior y además comprueba que el jugador esté descendiendo y que en el frame anterior estuviera sobre la superficie. Esto evita bloquear saltos desde abajo.
+- Dogs y Cyber-Catcher no reciben collider con balcones. El Cyber-Catcher ahora aparece y permanece en el carril terrestre, y suspende sus disparos EMP mientras el jugador usa la ruta elevada. Las Neon Bees conservan seguimiento vertical.
+- Todo el arte nuevo se genera mediante `Phaser.Graphics`; no se añadieron imágenes externas ni dependencias npm.
+- Estado de verificación al cerrar este bloque: **15 pruebas Node**, **79 comprobaciones de navegador con cuerpos Arcade reales** y compilación de producción correctas.
 
 Si Playwright indica que falta su navegador, instala Chromium y repite la comprobación:
 
