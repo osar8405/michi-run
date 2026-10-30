@@ -11,7 +11,7 @@ function pointerEvent(type, pointerId) {
 }
 
 function browserFixture(t) {
-  const buttons = ['jump', 'attack', 'dash'].map((action) => {
+  const buttons = ['jump', 'attack', 'dash', 'glide'].map((action) => {
     const button = new EventTarget();
     const classes = new Set();
     const captures = new Set();
@@ -83,6 +83,15 @@ test('soltar una fuente no cancela un salto sostenido con otra tecla o dedo', (t
   assert.equal(controls.held('jump'), false);
   assert.equal(buttons[0].classList.contains('is-pressed'), false);
   assert.equal(buttons[0].hasPointerCapture(7), false);
+});
+
+test('el botón de alas mantiene planeo sin consumir un salto', (t) => {
+  const { controls, buttons, window } = controlsFixture(t);
+  buttons[3].dispatchEvent(pointerEvent('pointerdown', 11));
+  assert.equal(controls.held('glide'), true);
+  assert.equal(controls.pressed('jump'), false);
+  window.dispatchEvent(pointerEvent('pointerup', 11));
+  assert.equal(controls.held('glide'), false);
 });
 
 test('perder captura o cancelar un dedo libera solo su acción', (t) => {

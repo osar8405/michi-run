@@ -18,7 +18,6 @@ const PLAYER = Object.freeze({
   dashSpeed: 830,
   beePenalty: 0.15,
   minimumMovementMultiplier: 0.4,
-  frenzyDuration: 5000,
 });
 
 /** Physics, action windows and player-owned effects stay together in this entity. */
@@ -52,7 +51,7 @@ export class Kitten extends Phaser.Physics.Arcade.Sprite {
     this.dashReadyAt = 0;
     this.dashSpeedMultiplier = 1;
     this.attachedBeeCount = 0;
-    this.frenzyUntil = 0;
+    this.frenzyActive = false;
     this.hurtUntil = 0;
     this.wasGrounded = false;
     this.lastTrailAt = 0;
@@ -90,23 +89,22 @@ export class Kitten extends Phaser.Physics.Arcade.Sprite {
     return Math.max(PLAYER.minimumMovementMultiplier, 1 - this.attachedBeeCount * PLAYER.beePenalty);
   }
   get isFrenzy() {
-    return (this.scene?.playTime ?? this.lastUpdateTime) < this.frenzyUntil;
+    return this.frenzyActive;
   }
 
   setAttachedBeeCount(count) {
     this.attachedBeeCount = Math.max(0, Math.floor(Number(count) || 0));
   }
 
-  activateFrenzy(time = this.scene?.playTime ?? this.lastUpdateTime) {
+  activateFrenzy() {
     if (this.stopped || this.isDead) return false;
-    this.frenzyUntil = time + PLAYER.frenzyDuration;
-    this.invincibleUntil = Math.max(this.invincibleUntil, this.frenzyUntil);
+    this.frenzyActive = true;
     return true;
   }
 
   deactivateFrenzy() {
-    if (this.frenzyUntil === 0) return;
-    this.frenzyUntil = 0;
+    if (!this.frenzyActive) return;
+    this.frenzyActive = false;
     this.scene?.events.emit('frenzy-ended');
   }
 
@@ -164,15 +162,12 @@ export class Kitten extends Phaser.Physics.Arcade.Sprite {
   }
 
   get isInvincible() {
-    return this.isDashing || this.isFrenzy
-      || (this.scene?.playTime ?? this.lastUpdateTime) < this.invincibleUntil;
+    return this.isDashing || (this.scene?.playTime ?? this.lastUpdateTime) < this.invincibleUntil;
   }
 
   update(time, delta, input) {
     if (!this.active || !this.body || this.stopped) return;
     this.lastUpdateTime = time;
-    if (this.frenzyUntil > 0 && time >= this.frenzyUntil) this.deactivateFrenzy();
-
     const grounded = (this.body.blocked.down || this.body.touching.down) && this.body.velocity.y >= 0;
     if (grounded) {
       this.lastGroundedAt = time;
@@ -202,7 +197,8 @@ export class Kitten extends Phaser.Physics.Arcade.Sprite {
       if (this.jumpBufferedUntil >= time && this.jumpsUsed < 2) this.jump(time);
 
       const wasGliding = this.isGliding;
-      this.isGliding = !grounded && this.body.velocity.y > 0 && input.held('jump');
+      this.isGliding = !grounded && this.body.velocity.y > 0
+        && (input.held('jump') || input.held('glide'));
       // Arcade adds body gravity to world gravity; counteract the world, don't replace it.
       this.body.setGravityY(this.isGliding ? GAME.gravity * (PLAYER.glideGravity - 1) : 0);
       if (this.isGliding) {
@@ -313,6 +309,7 @@ export class Kitten extends Phaser.Physics.Arcade.Sprite {
 
   beginHit() {
     const previousColor = this.evolution.color;
+    this.deactivateFrenzy();
     this.endAttack();
     this.clearWeapons();
     this.evolutionCharge = 0;
@@ -475,7 +472,7 @@ export class Kitten extends Phaser.Physics.Arcade.Sprite {
   stop() {
     this.stopped = true;
     this.isDashing = false;
-    this.frenzyUntil = 0;
+    this.frenzyActive = false;
     this.attachedBeeCount = 0;
     this.isGliding = false;
     this.endAttack();

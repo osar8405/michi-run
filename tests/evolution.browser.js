@@ -87,7 +87,10 @@ export async function runEvolutionChecks(page) {
         type: 'balconies',
         offset: 0,
         platforms: [{ offset: 0, floor: 1, width: 420, color: 'cyan' }],
+        skyShards: [{ offset: 300, floor: 3 }],
       });
+      check(scene.pickups.getChildren().some((pickup) => pickup.kind === 'neon-shard'
+        && pickup.y < 250), 'director-authored Sky Shards spawn above Balcony routes');
       const balcony = scene.balconyGroup.getChildren().at(-1);
       balcony.setPosition(player.x + 180, balcony.y).setVelocity(0, 0);
       balcony.body.updateFromGameObject();
@@ -217,21 +220,26 @@ export async function runEvolutionChecks(page) {
       const chicken = scene.neonChickens.getChildren().at(-1);
       check(chicken?.type === 'Graphics' && chicken.pulseTween?.isPlaying(),
         'high balcony spawns a procedural pulsing Neon Chicken');
-      const frenzyStartedAt = scene.playTime;
       scene.collectNeonChicken(chicken);
-      check(player.isFrenzy && player.frenzyUntil === frenzyStartedAt + 5000,
-        'Neon Chicken activates a five-second Frenzy timer');
+      player.lastUpdateTime = scene.playTime + 60000;
+      check(player.isFrenzy,
+        'Neon Chicken Frenzy remains active without a timer');
       const net = scene.empNets.create(player.x, player.y, 'emp-net');
       scene.onEmpNetCollision(net);
-      check(!net.active && player.currentEvolutionLevel === beeLevel,
-        'Frenzy destroys EMP nets without downgrading evolution');
-      player.deactivateFrenzy();
+      check(!net.active && !player.isFrenzy && player.currentEvolutionLevel === 1,
+        'EMP damage cancels Frenzy and resets evolution normally');
+      scene.hitStopRemaining = 0;
+      scene.setSimulationRate(1);
       scene.clearBalconies();
 
       clear();
+      player.currentEvolutionLevel = 4;
+      player.applyEvolution();
+      player.activateFrenzy();
       spawn(player.x, player.y, 'hound');
       step();
-      check(player.currentEvolutionLevel === 3 && !player.isDead, 'hound contact downgrades Tiger exactly one stage');
+      check(player.currentEvolutionLevel === 3 && !player.isFrenzy && !player.isDead,
+        'Cyber-Dog damage cancels Frenzy and downgrades Tiger exactly one stage');
       close(player.invincibleUntil - scene.playTime, 2000, 'two seconds of damage immunity');
       check(player.takeDamage() === false, 'repeat contact cannot consume another stage during immunity');
       check(scene.effects.emitters.get('pixels').getAliveParticleCount() > 0, 'damage emits pixel fragments');

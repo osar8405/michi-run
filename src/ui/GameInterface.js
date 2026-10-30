@@ -9,6 +9,7 @@ const icons = {
   bolt: '<path d="m13 2-9 12h7l-1 8 10-13h-7Z"/>',
   claw: '<path d="M3 20 9 5M9 21 15 3M16 20 22 5"/>',
   jump: '<path d="M4 19h16M12 16V3m-6 6 6-6 6 6"/>',
+  wing: '<path d="M12 18C8 13 5 8 3 3c5 2 8 5 9 9 1-4 4-7 9-9-2 5-5 10-9 15Zm0-6v9"/>',
   pause: '<path d="M8 5v14m8-14v14"/>',
   trophy:
     '<path d="M7 3h10v7a5 5 0 0 1-10 0Zm5 12v6m-4 0h8M7 5H3v3a4 4 0 0 0 4 4m10-7h4v3a4 4 0 0 1-4 4"/>',
@@ -54,7 +55,7 @@ export class GameInterface {
             <div class="dash-indicator"><div class="dash-orb" id="dash-orb">${icon("bolt")}</div><span id="dash-label">DASH LISTO <kbd>SHIFT</kbd></span></div>
           </div>
           <div class="state-screen" id="state-screen"><div class="state-panel"><span class="eyebrow" id="state-eyebrow">RESPIRA. LA NOCHE ES LARGA.</span><h2 id="state-title">EN PAUSA<span>_</span></h2><p id="state-description">Tu ciudad. Tu ritmo.</p><div class="result-stats" id="result-stats"><div><span>PUNTUACIÓN</span><b id="final-score">0</b></div><div><span>DISTANCIA</span><b id="final-distance">0 m</b></div><div><span>MEJOR COMBO</span><b id="final-combo">×1</b></div></div><button class="start-button" id="state-primary" data-ui="resume">${icon("play")}<span>CONTINUAR</span>${icon("arrow")}</button><button class="text-button" data-ui="menu">VOLVER AL INICIO</button></div></div>
-          <div class="touch-controls" aria-label="Controles táctiles"><button data-action="dash" aria-label="Dash">${icon("bolt")}<span>DASH</span></button><button data-action="attack" aria-label="Atacar">${icon("claw")}<span>GARRAS</span></button><button data-action="jump" aria-label="Saltar, mantener para planear">${icon("jump")}<span>SALTO</span></button></div>
+          <div class="touch-controls" aria-label="Controles táctiles"><div class="touch-zone touch-zone-left"><button data-action="attack" aria-label="Cyber Claws o rugido">${icon("claw")}<span>ATAQUE</span></button><button data-action="glide" aria-label="Mantener para desplegar las alas de neón">${icon("wing")}<span>ALAS</span></button></div><div class="touch-zone touch-zone-right"><button data-action="jump" aria-label="Saltar o hacer doble salto">${icon("jump")}<span>SALTO</span></button><button data-action="dash" aria-label="Neon Dash">${icon("bolt")}<span>DASH</span></button></div></div>
           <div class="arena-toast" id="arena-toast" role="status"></div><div class="drive-announcement" id="drive-announcement"><small>SISTEMAS AL MÁXIMO</small><strong>OVERDRIVE</strong></div>
         </section>
         <div class="control-strip"><div class="control-intro"><span class="tiny-square"></span> DOMINA LA NOCHE</div><div class="control-item"><kbd>ESPACIO</kbd><span>Saltar <b>×2</b><small>MANTÉN PARA PLANEAR</small></span></div><div class="control-item"><kbd>F</kbd><span>Cyber claws<small>ENLAZA TUS COMBOS</small></span></div><div class="control-item"><kbd>SHIFT</kbd><span>Neon dash<small>RÁPIDO E INVENCIBLE</small></span></div><div class="control-item pause-control"><kbd>ESC</kbd><span>Pausa<small>TOMA UN RESPIRO</small></span></div><button class="how-button" data-ui="help">VER CONTROLES ${icon("arrow")}</button></div>

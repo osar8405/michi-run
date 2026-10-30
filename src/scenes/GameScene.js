@@ -116,8 +116,7 @@ export class GameScene extends Phaser.Scene {
     this.physics.add.overlap(this.player, this.neonChickens, (_, chicken) => this.collectNeonChicken(chicken),
       (_, chicken) => this.state === 'playing' && chicken.active && !chicken.collected);
     this.physics.add.overlap(this.player, this.empNets, (_, net) => this.onEmpNetCollision(net),
-      (_, net) => this.state === 'playing' && net.active
-        && (!this.player.isDashing || this.player.isFrenzy));
+      (_, net) => this.state === 'playing' && net.active && !this.player.isDashing);
   }
 
   bindLifecycle() {
@@ -314,6 +313,11 @@ export class GameScene extends Phaser.Scene {
           this.createNeonChicken(x, BALCONY_FLOOR_TOPS[floor] - 54);
         }
       }
+      for (const shard of event.skyShards ?? []) {
+        const floor = Phaser.Math.Clamp(Math.round(shard.floor ?? 3), 1, 5);
+        const x = GAME.width + event.offset + Math.max(0, shard.offset ?? 0);
+        this.createPickup(x, BALCONY_FLOOR_TOPS[floor] - 52, 'neon-shard');
+      }
     } else if (event.type === 'neon-bee') {
       const limit = this.player.currentEvolutionLevel >= 5
         ? NEON_BEE_RULES.maxActiveLevel5
@@ -400,13 +404,13 @@ export class GameScene extends Phaser.Scene {
   collectNeonChicken(chicken) {
     if (!chicken.active || chicken.collected || this.state !== 'playing') return;
     chicken.collected = true;
-    if (!this.player.activateFrenzy(this.playTime)) return;
+    if (!this.player.activateFrenzy()) return;
     this.shakeOffAttachedBees();
     this.audio.play('powerup');
     this.effects.burst(chicken.x, chicken.y, COLORS.yellow, 70, 480);
     this.effects.burst(this.player.x, this.player.y, COLORS.white, 45, 360);
     this.cameras.main.flash(180, 255, 230, 109, false);
-    this.ui.toast('FRENZY MODE / 5 s DE VELOCIDAD, FUERZA E INVENCIBILIDAD');
+    this.ui.toast('FRENZY MODE / PODER ACTIVO HASTA RECIBIR DAÑO');
     this.removeNeonChicken(chicken);
   }
 
@@ -579,12 +583,6 @@ export class GameScene extends Phaser.Scene {
 
   onEmpNetCollision(net) {
     if (!net.active || this.state !== 'playing') return;
-    if (this.player.isFrenzy) {
-      const { x, y } = net;
-      net.destroy();
-      this.effects.burst(x, y, COLORS.yellow, 24, 180);
-      return;
-    }
     if (this.player.isDashing) return;
     net.destroy();
     if (!this.player.takeEmpNetHit(this.playTime)) return;
