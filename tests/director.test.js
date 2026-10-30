@@ -106,14 +106,16 @@ test('los eventos mantienen un contrato válido y desbloquean enemigos gradualme
         powerups.add(event.powerupType);
         break;
       case 'balconies':
-        assert.ok(['staircase', 'switchback', 'skyline'].includes(event.pattern));
+        assert.ok(['staircase', 'switchback', 'skyline', 'high-rise', 'penthouse'].includes(event.pattern));
         assert.ok(event.platforms.length >= 3);
         assert.equal(event.platforms[0].floor, 1);
-        assert.equal(event.platforms.at(-1).floor, 3);
+        assert.ok([3, 4, 5].includes(event.platforms.at(-1).floor));
         event.platforms.forEach((platform, index) => {
-          assert.ok([1, 2, 3].includes(platform.floor));
-          assert.ok(platform.width >= 335 && platform.width <= 440);
+          assert.ok([1, 2, 3, 4, 5].includes(platform.floor));
+          assert.ok(platform.width >= 335 && platform.width <= 615);
           assert.ok(['cyan', 'magenta'].includes(platform.color));
+          assert.equal(platform.neonChicken, platform.floor >= 4
+            && index === event.platforms.length - 1);
           if (index > 0) {
             const previous = event.platforms[index - 1];
             assert.ok(platform.offset > previous.offset);
@@ -192,14 +194,22 @@ test('el Cyber-Swarm se desbloquea en nivel 4 y acelera con fuerza en nivel 5', 
     .filter((event) => event.type === 'neon-bee').length, 1);
 });
 
-test('los Neon Balconies forman rutas solapadas desde el piso 1 hasta el 3', () => {
+test('los Neon Balconies forman rutas solapadas y reservan pollos para las azoteas', () => {
   const events = simulate(new RunDirector(84), 45, true)
     .filter((event) => event.type === 'balconies');
   assert.ok(events.length >= 3);
   assert.ok(events[0].time >= 5200 && events[0].time <= 5200 + FRAME);
+  assert.ok(events.some((event) => event.platforms.at(-1).floor >= 4));
   for (const event of events) {
     assert.equal(event.platforms[0].floor, 1);
-    assert.equal(event.platforms.at(-1).floor, 3);
+    const chickenPlatforms = event.platforms.filter((platform) => platform.neonChicken);
+    if (event.platforms.at(-1).floor >= 4) {
+      assert.equal(chickenPlatforms.length, 1);
+      assert.equal(chickenPlatforms[0], event.platforms.at(-1));
+      assert.ok(chickenPlatforms[0].width >= 470);
+    } else {
+      assert.equal(chickenPlatforms.length, 0);
+    }
     for (let index = 1; index < event.platforms.length; index += 1) {
       const previous = event.platforms[index - 1];
       const current = event.platforms[index];

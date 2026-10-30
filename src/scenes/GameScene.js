@@ -23,7 +23,10 @@ const BALCONY_FLOOR_TOPS = Object.freeze({
   1: GAME.groundY - 132,
   2: GAME.groundY - 264,
   3: GAME.groundY - 396,
+  4: 110,
+  5: 42,
 });
+const FRENZY_SPEED_MULTIPLIER = 1.55;
 
 export class GameScene extends Phaser.Scene {
   constructor() { super('GameScene'); }
@@ -81,6 +84,7 @@ export class GameScene extends Phaser.Scene {
     this.bees = this.physics.add.group({ allowGravity: false });
     this.balconyGroup = this.physics.add.group({ allowGravity: false, immovable: true });
     this.pickups = this.physics.add.group({ allowGravity: false, immovable: true });
+    this.neonChickens = this.physics.add.group({ allowGravity: false, immovable: true });
     this.empNets = this.physics.add.group({ allowGravity: false, immovable: true });
     this.catcher = null;
     this.player = new Kitten(this, 340, GAME.groundY - 45);
@@ -109,8 +113,11 @@ export class GameScene extends Phaser.Scene {
       (_, bee) => this.state === 'playing' && bee.active && !bee.attached);
     this.physics.add.overlap(this.player, this.pickups, (_, pickup) => this.collectPickup(pickup),
       (_, pickup) => this.state === 'playing' && pickup.active && !pickup.collected);
+    this.physics.add.overlap(this.player, this.neonChickens, (_, chicken) => this.collectNeonChicken(chicken),
+      (_, chicken) => this.state === 'playing' && chicken.active && !chicken.collected);
     this.physics.add.overlap(this.player, this.empNets, (_, net) => this.onEmpNetCollision(net),
-      (_, net) => this.state === 'playing' && net.active && !this.player.isDashing);
+      (_, net) => this.state === 'playing' && net.active
+        && (!this.player.isDashing || this.player.isFrenzy));
   }
 
   bindLifecycle() {
@@ -234,7 +241,8 @@ export class GameScene extends Phaser.Scene {
     if (this.combo > 0 && this.playTime > this.comboUntil) this.combo = 0;
     const events = this.director.update(delta, this.worldSpeed, this.player.currentEvolutionLevel,
       Boolean(this.catcher?.active), this.bees.countActive(true));
-    this.worldSpeed = this.director.speed + (this.overdriveActive ? 65 : 0);
+    this.worldSpeed = this.director.speed * (this.player.isFrenzy ? FRENZY_SPEED_MULTIPLIER : 1)
+      + (this.overdriveActive ? 65 : 0);
     this.distance += this.worldSpeed * delta / 1000 / 12;
     this.score += delta / 1000 * 6 * this.multiplier;
     this.city.update(this.ambientTime, delta, this.worldSpeed, { overdrive: this.overdriveActive });
@@ -247,6 +255,7 @@ export class GameScene extends Phaser.Scene {
     this.updateBeeSwarm(delta);
     for (const event of events) this.spawnEncounter(event);
     this.updatePickups(delta);
+    this.updateNeonChickens();
     // Physics and action timers share the same bounded step on slow devices.
     this.physics.world.update(_time, delta);
     for (const balcony of this.balconyGroup.getChildren()) balcony.syncGlow();
@@ -289,18 +298,21 @@ export class GameScene extends Phaser.Scene {
       this.createPickup(GAME.width + event.offset, GAME.groundY - 118, event.powerupType);
     } else if (event.type === 'balconies') {
       for (const definition of event.platforms ?? []) {
-        const floor = Phaser.Math.Clamp(Math.round(definition.floor ?? 1), 1, 3);
+        const floor = Phaser.Math.Clamp(Math.round(definition.floor ?? 1), 1, 5);
         const x = GAME.width + event.offset + Math.max(0, definition.offset ?? 0);
         const balcony = new NeonBalcony(
           this,
           x,
           BALCONY_FLOOR_TOPS[floor],
-          Phaser.Math.Clamp(definition.width ?? 340, 280, 460),
+          Phaser.Math.Clamp(definition.width ?? 340, 280, 680),
           definition.color,
         );
         this.balconyGroup.add(balcony);
         balcony.configureBody();
         balcony.setVelocityX(-this.worldSpeed);
+        if (definition.neonChicken && floor >= 4) {
+          this.createNeonChicken(x, BALCONY_FLOOR_TOPS[floor] - 54);
+        }
       }
     } else if (event.type === 'neon-bee') {
       const limit = this.player.currentEvolutionLevel >= 5
@@ -348,6 +360,59 @@ export class GameScene extends Phaser.Scene {
       }).setOrigin(0.5).setDepth(24);
     }
     return pickup;
+  }
+
+  createNeonChicken(x, y) {
+    const chicken = this.add.graphics({ x, y }).setDepth(26).setBlendMode(Phaser.BlendModes.ADD);
+    chicken.fillStyle(COLORS.yellow, 0.12).fillCircle(0, 0, 32);
+    chicken.fillStyle(COLORS.white, 0.2).fillCircle(0, 0, 23);
+    chicken.lineStyle(6, COLORS.yellow, 0.3).lineBetween(-12, 16, 12, -15);
+    chicken.lineStyle(9, COLORS.white, 1).lineBetween(-12, 16, 12, -15);
+    chicken.fillStyle(COLORS.yellow, 1).fillEllipse(11, -17, 25, 20);
+    chicken.fillStyle(COLORS.white, 1).fillCircle(-15, 19, 7);
+    chicken.fillStyle(COLORS.white, 1).fillCircle(-7, 24, 6);
+    this.physics.add.existing(chicken);
+    this.neonChickens.add(chicken);
+    chicken.body.setAllowGravity(false).setImmovable(true).setSize(48, 58, true);
+    chicken.collected = false;
+    chicken.baseScale = 1;
+    chicken.pulseTween = this.tweens.add({
+      targets: chicken,
+      scale: 1.2,
+      alpha: 0.72,
+      duration: 430,
+      ease: 'Sine.InOut',
+      yoyo: true,
+      repeat: -1,
+    });
+    return chicken;
+  }
+
+  updateNeonChickens() {
+    for (const chicken of this.neonChickens.getChildren().slice()) {
+      if (!chicken.active) continue;
+      chicken.body.setVelocityX(-this.worldSpeed);
+      chicken.rotation = Math.sin(this.playTime * 0.004) * 0.08;
+      if (chicken.x < -90) this.removeNeonChicken(chicken);
+    }
+  }
+
+  collectNeonChicken(chicken) {
+    if (!chicken.active || chicken.collected || this.state !== 'playing') return;
+    chicken.collected = true;
+    if (!this.player.activateFrenzy(this.playTime)) return;
+    this.shakeOffAttachedBees();
+    this.audio.play('powerup');
+    this.effects.burst(chicken.x, chicken.y, COLORS.yellow, 70, 480);
+    this.effects.burst(this.player.x, this.player.y, COLORS.white, 45, 360);
+    this.cameras.main.flash(180, 255, 230, 109, false);
+    this.ui.toast('FRENZY MODE / 5 s DE VELOCIDAD, FUERZA E INVENCIBILIDAD');
+    this.removeNeonChicken(chicken);
+  }
+
+  removeNeonChicken(chicken) {
+    chicken.pulseTween?.stop();
+    chicken.destroy();
   }
 
   updatePickups() {
@@ -408,6 +473,7 @@ export class GameScene extends Phaser.Scene {
       bee.updateFlight(this.playTime, delta, this.player);
       if (bee.attached) attached.push(bee);
     }
+    this.player.setAttachedBeeCount(attached.length);
     if (attached.length === 0) {
       this.swarmChargeDrain = 0;
       return;
@@ -442,13 +508,14 @@ export class GameScene extends Phaser.Scene {
 
   onBeeContact(bee) {
     if (!bee.active || bee.attached || this.state !== 'playing') return;
-    if (this.player.isDashing) {
+    if (this.player.isDashing || this.player.isFrenzy) {
       bee.shakeOff();
       return;
     }
 
     const slot = this.bees.getChildren().filter((candidate) => candidate.attached).length;
     if (!bee.attachTo(this.player, slot, this.playTime)) return;
+    this.player.setAttachedBeeCount(slot + 1);
     this.audio.play('hit');
     this.effects.burst(this.player.x, this.player.y, 0xff304f, 18, 150);
     this.cameras.main.flash(90, 255, 35, 20, false);
@@ -462,6 +529,7 @@ export class GameScene extends Phaser.Scene {
     const attached = this.bees.getChildren().filter((bee) => bee.active && bee.attached);
     if (attached.length === 0) return;
     for (const bee of attached) bee.shakeOff();
+    this.player.setAttachedBeeCount(0);
     this.swarmChargeDrain = 0;
     this.cameras.main.shake(100, 0.004);
     this.ui.toast(`DASH PURGA / ${attached.length} ${attached.length === 1 ? 'ABEJA' : 'ABEJAS'} DESTRUIDAS`);
@@ -470,6 +538,7 @@ export class GameScene extends Phaser.Scene {
   clearBeeSwarm() {
     if (!this.bees?.children) return;
     for (const bee of this.bees.getChildren().slice()) bee.retire();
+    this.player?.setAttachedBeeCount(0);
     this.swarmChargeDrain = 0;
   }
 
@@ -509,7 +578,14 @@ export class GameScene extends Phaser.Scene {
   }
 
   onEmpNetCollision(net) {
-    if (!net.active || this.state !== 'playing' || this.player.isDashing) return;
+    if (!net.active || this.state !== 'playing') return;
+    if (this.player.isFrenzy) {
+      const { x, y } = net;
+      net.destroy();
+      this.effects.burst(x, y, COLORS.yellow, 24, 180);
+      return;
+    }
+    if (this.player.isDashing) return;
     net.destroy();
     if (!this.player.takeEmpNetHit(this.playTime)) return;
 

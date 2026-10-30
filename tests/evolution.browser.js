@@ -193,6 +193,7 @@ export async function runEvolutionChecks(page) {
       step(2);
       check(bee.attached && !bee.body.enable && player.currentEvolutionLevel === beeLevel,
         'Bee contact attaches without downgrading evolution');
+      close(player.movementMultiplier, 0.85, 'each attached Bee applies a 15% movement penalty');
       const energyBeforeDrain = scene.energy;
       const chargeBeforeDrain = player.evolutionCharge;
       step(75);
@@ -202,8 +203,30 @@ export async function runEvolutionChecks(page) {
       player.dashReadyAt = 0;
       player.dash();
       check(!bee.active && scene.bees.getLength() === 0, 'Dash shakes off and destroys attached Bees');
+      close(player.movementMultiplier, 1, 'Dash instantly restores normal movement physics');
+      close(player.dashSpeedMultiplier, 0.85, 'the purging Dash keeps its reduced travel distance');
       step(13);
       settle();
+
+      clear();
+      scene.spawnEncounter({
+        type: 'balconies',
+        offset: 0,
+        platforms: [{ offset: 0, floor: 4, width: 520, color: 'cyan', neonChicken: true }],
+      });
+      const chicken = scene.neonChickens.getChildren().at(-1);
+      check(chicken?.type === 'Graphics' && chicken.pulseTween?.isPlaying(),
+        'high balcony spawns a procedural pulsing Neon Chicken');
+      const frenzyStartedAt = scene.playTime;
+      scene.collectNeonChicken(chicken);
+      check(player.isFrenzy && player.frenzyUntil === frenzyStartedAt + 5000,
+        'Neon Chicken activates a five-second Frenzy timer');
+      const net = scene.empNets.create(player.x, player.y, 'emp-net');
+      scene.onEmpNetCollision(net);
+      check(!net.active && player.currentEvolutionLevel === beeLevel,
+        'Frenzy destroys EMP nets without downgrading evolution');
+      player.deactivateFrenzy();
+      scene.clearBalconies();
 
       clear();
       spawn(player.x, player.y, 'hound');
