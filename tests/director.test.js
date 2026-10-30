@@ -106,23 +106,40 @@ test('los eventos mantienen un contrato válido y desbloquean enemigos gradualme
         powerups.add(event.powerupType);
         break;
       case 'balconies':
-        assert.ok(['staircase', 'switchback', 'skyline'].includes(event.pattern));
-        assert.ok(event.platforms.length >= 3);
+        assert.ok(['staircase', 'switchback', 'skyline', 'high-rise', 'penthouse'].includes(event.pattern));
+        assert.ok(event.platforms.length >= 6);
         assert.equal(event.platforms[0].floor, 1);
-        assert.equal(event.platforms.at(-1).floor, 3);
+        assert.ok([3, 4, 5].includes(event.platforms.at(-1).floor));
         event.platforms.forEach((platform, index) => {
-          assert.ok([1, 2, 3].includes(platform.floor));
-          assert.ok(platform.width >= 335 && platform.width <= 440);
+          assert.ok([1, 2, 3, 4, 5].includes(platform.floor));
+          assert.ok(platform.width >= 500 && platform.width <= 640);
           assert.ok(['cyan', 'magenta'].includes(platform.color));
+          assert.equal(platform.neonChicken, platform.floor >= 4
+            && index === event.platforms.length - 1);
           if (index > 0) {
             const previous = event.platforms[index - 1];
+            const edgeGap = platform.offset - previous.offset
+              - (previous.width + platform.width) / 2;
             assert.ok(platform.offset > previous.offset);
-            assert.ok(platform.offset < previous.offset + previous.width,
-              'Los balcones consecutivos deben solaparse horizontalmente.');
+            if (platform.floor === previous.floor) {
+              assert.ok(edgeGap >= 34.5 && edgeGap <= 65.5,
+                'La ruta superior debe conservar huecos pequeños y saltables.');
+            } else {
+              assert.ok(edgeGap >= -105.5 && edgeGap <= -74.5,
+                'Los escalones verticales deben solaparse para seguir siendo alcanzables.');
+            }
             assert.ok(Math.abs(platform.floor - previous.floor) <= 1,
               'Los pisos consecutivos deben ser alcanzables.');
           }
         });
+        assert.ok(event.skyShards.length > 7,
+          'La ruta superior debe superar la densidad de siete fragmentos del suelo.');
+        for (const shard of event.skyShards) {
+          assert.ok(shard.floor >= 3 && shard.floor <= 5);
+          assert.ok(event.platforms.some((platform) => platform.floor === shard.floor
+            && shard.offset >= platform.offset - platform.width / 2
+            && shard.offset <= platform.offset + platform.width / 2));
+        }
         balconyPatterns.add(event.pattern);
         break;
       default:
@@ -192,18 +209,32 @@ test('el Cyber-Swarm se desbloquea en nivel 4 y acelera con fuerza en nivel 5', 
     .filter((event) => event.type === 'neon-bee').length, 1);
 });
 
-test('los Neon Balconies forman rutas solapadas desde el piso 1 hasta el 3', () => {
+test('los Neon Balconies forman Sky Routes largas con huecos, fragmentos y azoteas', () => {
   const events = simulate(new RunDirector(84), 45, true)
     .filter((event) => event.type === 'balconies');
   assert.ok(events.length >= 3);
   assert.ok(events[0].time >= 5200 && events[0].time <= 5200 + FRAME);
+  assert.ok(events.some((event) => event.platforms.at(-1).floor >= 4));
   for (const event of events) {
     assert.equal(event.platforms[0].floor, 1);
-    assert.equal(event.platforms.at(-1).floor, 3);
+    const chickenPlatforms = event.platforms.filter((platform) => platform.neonChicken);
+    if (event.platforms.at(-1).floor >= 4) {
+      assert.equal(chickenPlatforms.length, 1);
+      assert.equal(chickenPlatforms[0], event.platforms.at(-1));
+      assert.ok(chickenPlatforms[0].width >= 500);
+    } else {
+      assert.equal(chickenPlatforms.length, 0);
+    }
+    const routeLength = event.platforms.at(-1).offset + event.platforms.at(-1).width / 2
+      - (event.platforms[0].offset - event.platforms[0].width / 2);
+    assert.ok(routeLength > 3000, 'La Sky Route debe sentirse como un piso superior continuo.');
+    assert.ok(event.skyShards.length > 7);
     for (let index = 1; index < event.platforms.length; index += 1) {
       const previous = event.platforms[index - 1];
       const current = event.platforms[index];
-      assert.ok(current.offset < previous.offset + previous.width);
+      const edgeGap = current.offset - previous.offset - (previous.width + current.width) / 2;
+      if (current.floor === previous.floor) assert.ok(edgeGap >= 34.5 && edgeGap <= 65.5);
+      else assert.ok(edgeGap < 0);
       assert.ok(Math.abs(current.floor - previous.floor) <= 1);
     }
   }

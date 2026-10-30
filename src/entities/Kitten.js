@@ -16,6 +16,8 @@ const PLAYER = Object.freeze({
   dashDuration: 175,
   dashCooldown: 1450,
   dashSpeed: 830,
+  beePenalty: 0.15,
+  minimumMovementMultiplier: 0.4,
 });
 
 /** Physics, action windows and player-owned effects stay together in this entity. */
@@ -47,6 +49,9 @@ export class Kitten extends Phaser.Physics.Arcade.Sprite {
     this.attackReadyAt = 0;
     this.dashEndsAt = 0;
     this.dashReadyAt = 0;
+    this.dashSpeedMultiplier = 1;
+    this.attachedBeeCount = 0;
+    this.frenzyActive = false;
     this.hurtUntil = 0;
     this.wasGrounded = false;
     this.lastTrailAt = 0;
@@ -80,6 +85,28 @@ export class Kitten extends Phaser.Physics.Arcade.Sprite {
   get evolution() { return EVOLUTIONS[this.currentEvolutionLevel - 1]; }
   get health() { return this.isDead ? 0 : this.currentEvolutionLevel; }
   get hasPassiveArmor() { return this.currentEvolutionLevel >= 4; }
+  get movementMultiplier() {
+    return Math.max(PLAYER.minimumMovementMultiplier, 1 - this.attachedBeeCount * PLAYER.beePenalty);
+  }
+  get isFrenzy() {
+    return this.frenzyActive;
+  }
+
+  setAttachedBeeCount(count) {
+    this.attachedBeeCount = Math.max(0, Math.floor(Number(count) || 0));
+  }
+
+  activateFrenzy() {
+    if (this.stopped || this.isDead) return false;
+    this.frenzyActive = true;
+    return true;
+  }
+
+  deactivateFrenzy() {
+    if (!this.frenzyActive) return;
+    this.frenzyActive = false;
+    this.scene?.events.emit('frenzy-ended');
+  }
 
   addEvolutionCharge(amount) {
     if (this.stopped || this.isDead || !Number.isFinite(amount) || amount <= 0) return;
@@ -141,7 +168,6 @@ export class Kitten extends Phaser.Physics.Arcade.Sprite {
   update(time, delta, input) {
     if (!this.active || !this.body || this.stopped) return;
     this.lastUpdateTime = time;
-
     const grounded = (this.body.blocked.down || this.body.touching.down) && this.body.velocity.y >= 0;
     if (grounded) {
       this.lastGroundedAt = time;
@@ -162,6 +188,7 @@ export class Kitten extends Phaser.Physics.Arcade.Sprite {
     if (this.isAttacking && time >= this.attackEndsAt) this.endAttack();
     if (this.isDashing && time >= this.dashEndsAt) {
       this.isDashing = false;
+      this.dashSpeedMultiplier = 1;
       this.body.setAllowGravity(true);
       this.setVelocityX(0);
     }
@@ -170,7 +197,8 @@ export class Kitten extends Phaser.Physics.Arcade.Sprite {
       if (this.jumpBufferedUntil >= time && this.jumpsUsed < 2) this.jump(time);
 
       const wasGliding = this.isGliding;
-      this.isGliding = !grounded && this.body.velocity.y > 0 && input.held('jump');
+      this.isGliding = !grounded && this.body.velocity.y > 0
+        && (input.held('jump') || input.held('glide'));
       // Arcade adds body gravity to world gravity; counteract the world, don't replace it.
       this.body.setGravityY(this.isGliding ? GAME.gravity * (PLAYER.glideGravity - 1) : 0);
       if (this.isGliding) {
@@ -179,12 +207,13 @@ export class Kitten extends Phaser.Physics.Arcade.Sprite {
       }
 
       if (time >= this.hurtUntil) {
-        const targetX = this.anchorX + (input.direction ?? 0) * 80;
-        this.setVelocityX(Phaser.Math.Clamp((targetX - this.x) * 7.5, -380, 380));
+        const movement = this.movementMultiplier;
+        const targetX = this.anchorX + (input.direction ?? 0) * 80 * movement;
+        this.setVelocityX(Phaser.Math.Clamp((targetX - this.x) * 7.5, -380 * movement, 380 * movement));
       }
     } else {
       this.isGliding = false;
-      this.setVelocity(PLAYER.dashSpeed, 0);
+      this.setVelocity(PLAYER.dashSpeed * this.dashSpeedMultiplier, 0);
       if (time - this.lastTrailAt >= 24) {
         this.scene.effects?.afterimage(this);
         this.lastTrailAt = time;
@@ -209,7 +238,8 @@ export class Kitten extends Phaser.Physics.Arcade.Sprite {
     this.lastGroundedAt = -Infinity;
     this.isGliding = false;
     this.body.setGravityY(0);
-    this.setVelocityY(isDoubleJump ? PLAYER.doubleJumpVelocity : PLAYER.jumpVelocity);
+    const jumpVelocity = isDoubleJump ? PLAYER.doubleJumpVelocity : PLAYER.jumpVelocity;
+    this.setVelocityY(jumpVelocity * this.movementMultiplier);
     this.scene.effects?.burst(this.x - 6, this.body.bottom, this.evolution.color, isDoubleJump ? 20 : 11, 160);
     this.scene.audio?.play('jump');
     this.scene.events.emit('player-action', isDoubleJump ? 'double-jump' : 'jump');
@@ -241,10 +271,11 @@ export class Kitten extends Phaser.Physics.Arcade.Sprite {
     if (this.stopped || time < this.dashReadyAt) return false;
     this.isDashing = true;
     this.isGliding = false;
+    this.dashSpeedMultiplier = this.movementMultiplier;
     this.dashEndsAt = time + PLAYER.dashDuration;
     this.dashReadyAt = time + PLAYER.dashCooldown;
     this.body.setAllowGravity(false).setGravityY(0);
-    this.setVelocity(PLAYER.dashSpeed, 0);
+    this.setVelocity(PLAYER.dashSpeed * this.dashSpeedMultiplier, 0);
     this.lastDamageTrailAt = -Infinity;
     this.scene.effects?.burst(this.x - 34, this.y + 8, this.evolution.color, 22, 250);
     this.scene.audio?.play('dash');
@@ -278,6 +309,7 @@ export class Kitten extends Phaser.Physics.Arcade.Sprite {
 
   beginHit() {
     const previousColor = this.evolution.color;
+    this.deactivateFrenzy();
     this.endAttack();
     this.clearWeapons();
     this.evolutionCharge = 0;
@@ -386,16 +418,24 @@ export class Kitten extends Phaser.Physics.Arcade.Sprite {
     if (this.texture.key !== texture && this.scene.textures.exists(texture)) this.setTexture(texture);
     const targetAngle = this.isDashing ? -0.12 : this.isGliding ? -0.08 : grounded ? Math.sin(time * 0.024) * 0.025 : Phaser.Math.Clamp(this.body.velocity.y / 6500, -0.09, 0.09);
     this.rotation = Phaser.Math.Linear(this.rotation, targetAngle, Math.min(1, delta / 75));
-    this.setAlpha(time < this.invincibleUntil && !this.isDashing ? (Math.floor(time / 65) % 2 ? 0.42 : 1) : 1);
-    this.setTint(this.evolution.color);
+    this.setAlpha(time < this.invincibleUntil && !this.isDashing && !this.isFrenzy
+      ? (Math.floor(time / 65) % 2 ? 0.42 : 1)
+      : 1);
+    this.setTint(this.isFrenzy ? (Math.floor(time / 70) % 2 ? COLORS.white : COLORS.yellow) : this.evolution.color);
     this.drawEvolutionAura(time);
   }
 
   drawEvolutionAura(time) {
     const aura = this.evolutionAura;
     const scale = this.evolution.scale;
-    const color = this.evolution.color;
+    const color = this.isFrenzy ? COLORS.yellow : this.evolution.color;
     aura.clear().setPosition(this.x, this.y).setRotation(this.rotation).setScale(scale).setAlpha(this.alpha);
+    if (this.isFrenzy) {
+      const pulse = 48 + Math.sin(time * 0.018) * 7;
+      aura.lineStyle(16, COLORS.yellow, 0.13).strokeCircle(0, 0, pulse);
+      aura.lineStyle(5, COLORS.white, 0.9).strokeCircle(0, 0, pulse - 5);
+      aura.lineStyle(2, COLORS.yellow, 0.95).strokeCircle(0, 0, pulse + 8);
+    }
     // Silhouette accents distinguish each form without loading additional artwork.
     if (this.currentEvolutionLevel >= 2) {
       aura.lineStyle(2, color, 0.9);
@@ -432,6 +472,8 @@ export class Kitten extends Phaser.Physics.Arcade.Sprite {
   stop() {
     this.stopped = true;
     this.isDashing = false;
+    this.frenzyActive = false;
+    this.attachedBeeCount = 0;
     this.isGliding = false;
     this.endAttack();
     this.wings?.clear();

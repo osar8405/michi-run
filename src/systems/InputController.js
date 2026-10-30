@@ -53,7 +53,7 @@ export class InputController {
     if (typeof document !== 'undefined') {
       document.querySelectorAll('[data-action]').forEach((button) => {
         const action = button.dataset.action;
-        if (!['jump', 'attack', 'dash'].includes(action)) return;
+        if (!['jump', 'glide', 'attack', 'dash'].includes(action)) return;
         const down = (event) => {
           if (button.disabled || button.getAttribute('aria-disabled') === 'true'
             || button.closest('[hidden], [aria-hidden="true"]')) return;

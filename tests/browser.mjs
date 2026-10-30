@@ -164,6 +164,21 @@ try {
   await mobile.locator('[data-ui="start"]').tap();
   await mobile.waitForFunction(() => window.__MICHI_GAME__.scene.getScene('GameScene').player.body.blocked.down);
   assert.equal(await mobile.locator('.touch-controls').isVisible(), true, 'touch controls are visible');
+  const touchLayout = await mobile.evaluate(() => {
+    const frame = document.querySelector('.arcade-frame').getBoundingClientRect();
+    const left = document.querySelector('.touch-zone-left').getBoundingClientRect();
+    const right = document.querySelector('.touch-zone-right').getBoundingClientRect();
+    const buttons = [...document.querySelectorAll('.touch-controls button')]
+      .map((button) => button.getBoundingClientRect());
+    return {
+      leftOfCenter: left.right < frame.left + frame.width / 2,
+      rightOfCenter: right.left > frame.left + frame.width / 2,
+      minimumHitArea: Math.min(...buttons.flatMap(({ width, height }) => [width, height])),
+    };
+  });
+  assert.equal(touchLayout.leftOfCenter, true, 'attack and glide controls stay under the left thumb');
+  assert.equal(touchLayout.rightOfCenter, true, 'jump and dash controls stay under the right thumb');
+  assert.ok(touchLayout.minimumHitArea >= 64, 'touch targets remain at least 64 CSS pixels');
   await mobile.locator('[data-action="jump"]').tap();
   await mobile.waitForFunction(() => window.__MICHI_GAME__.scene.getScene('GameScene').player.jumpsUsed === 1);
   assert.equal(await mobile.evaluate(() => window.__MICHI_GAME__.scene.getScene('GameScene').player.jumpsUsed), 1, 'touch jump');

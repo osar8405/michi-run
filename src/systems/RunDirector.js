@@ -1,8 +1,10 @@
 const SECTORS = ['NEO TOKIO', 'NEON EXPRESS', 'SKYLINE SECTOR'];
 const BALCONY_PATTERNS = Object.freeze([
-  Object.freeze({ name: 'staircase', floors: Object.freeze([1, 2, 3]) }),
-  Object.freeze({ name: 'switchback', floors: Object.freeze([1, 2, 1, 2, 3]) }),
-  Object.freeze({ name: 'skyline', floors: Object.freeze([1, 2, 2, 3]) }),
+  Object.freeze({ name: 'staircase', floors: Object.freeze([1, 2, 3, 3, 3, 3]), highRise: false }),
+  Object.freeze({ name: 'switchback', floors: Object.freeze([1, 2, 2, 3, 3, 3, 3]), highRise: false }),
+  Object.freeze({ name: 'skyline', floors: Object.freeze([1, 2, 3, 3, 3, 3, 3]), highRise: false }),
+  Object.freeze({ name: 'high-rise', floors: Object.freeze([1, 2, 3, 4, 4, 4, 4]), highRise: true }),
+  Object.freeze({ name: 'penthouse', floors: Object.freeze([1, 2, 3, 4, 5, 5, 5, 5]), highRise: true }),
 ]);
 
 function normalizeSeed(seed) {
@@ -141,19 +143,44 @@ export class RunDirector {
 
     if (this.nextBalconies <= 0) {
       const pattern = BALCONY_PATTERNS[Math.floor(this.random() * BALCONY_PATTERNS.length)];
-      const spacing = Math.round(245 + this.random() * 35);
       const alternateColor = this.random() < 0.5;
-      const platforms = pattern.floors.map((floor, index) => ({
-        offset: index * spacing,
-        floor,
-        width: Math.round(spacing + 90 + this.random() * 70),
-        color: (index + Number(alternateColor)) % 2 === 0 ? 'cyan' : 'magenta',
-      }));
+      const platforms = [];
+      const skyShards = [];
+      let routeOffset = 0;
+      let previousWidth = 0;
+      let previousFloor = 0;
+      pattern.floors.forEach((floor, index) => {
+        const width = Math.round(500 + this.random() * 140);
+        if (index > 0) {
+          const gap = floor === previousFloor
+            ? Math.round(35 + this.random() * 30)
+            : Math.round(-105 + this.random() * 30);
+          routeOffset += (previousWidth + width) / 2 + gap;
+        }
+        const platform = {
+          offset: Math.round(routeOffset),
+          floor,
+          width,
+          color: (index + Number(alternateColor)) % 2 === 0 ? 'cyan' : 'magenta',
+          neonChicken: pattern.highRise && index === pattern.floors.length - 1,
+        };
+        platforms.push(platform);
+        if (floor >= 3) {
+          const left = platform.offset - platform.width / 2 + 65;
+          const right = platform.offset + platform.width / 2 - 65;
+          for (let shardOffset = left; shardOffset <= right; shardOffset += 92) {
+            skyShards.push({ offset: Math.round(shardOffset), floor });
+          }
+        }
+        previousWidth = width;
+        previousFloor = floor;
+      });
       events.push({
         type: 'balconies',
         pattern: pattern.name,
         offset: 120,
         platforms,
+        skyShards,
       });
       this.nextBalconies = Math.max(7600, 11200 - seconds * 9) + this.random() * 2200;
     }
