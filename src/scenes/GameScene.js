@@ -66,6 +66,17 @@ export class GameScene extends Phaser.Scene {
     this.city = new NeonCity(this);
     this.effects = new NeonEffects(this);
     this.audio = new SynthAudio();
+    this.customBgMusic = null;
+    if (this.cache.audio.exists('customBgMusic')) {
+      this.customBgMusic = this.sound.add('customBgMusic', {
+        loop: true,
+        volume: 0.5,
+      });
+      this.customBgMusic.setMute(this.audio.muted);
+      this.customBgMusic.play();
+    } else {
+      console.warn('No se cargó customBgMusic; se usará la música synth de respaldo.');
+    }
     this.runSeed = data.seed ?? null;
     this.dailyRun = data.dailyRun === true;
     this.director = new RunDirector(this.runSeed ?? undefined);
@@ -136,7 +147,7 @@ export class GameScene extends Phaser.Scene {
       if (action === 'pause') this.pauseRun();
       if (action === 'resume') this.resumeRun();
       if (action === 'menu') this.scene.restart({ autoStart: false });
-      if (action === 'mute') this.ui.setMuted(this.audio.toggleMute());
+      if (action === 'mute') this.toggleAudioMute();
       if (action === 'share') void this.shareRecord();
       if (action === 'help') {
         this.helpWasPlaying = this.state === 'playing';
@@ -173,7 +184,7 @@ export class GameScene extends Phaser.Scene {
     this.player.invincibleUntil = 900;
     this.controls.clear();
     this.ui.setMode('playing');
-    this.audio.start();
+    if (!this.customBgMusic) this.audio.start();
     this.effects.burst(this.player.x, this.player.y, COLORS.cyan, 35, 240);
     this.ui.toast(this.dailyRun ? `DAILY RUN / ${this.runSeed}` : 'LA NOCHE ES TUYA. CORRE.');
     this.refreshHud();
@@ -202,6 +213,7 @@ export class GameScene extends Phaser.Scene {
     this.time.timeScale = 0;
     for (const emitter of this.effects.emitters.values()) emitter.timeScale = 0;
     this.audio.pause();
+    this.customBgMusic?.pause();
     this.controls.clear();
     this.ui.setMode('paused');
   }
@@ -212,7 +224,8 @@ export class GameScene extends Phaser.Scene {
     this.setSimulationRate(this.hitStopRemaining > 0 ? EVOLUTION_RULES.hitStopScale : 1);
     this.physics.resume();
     this.tweens.resumeAll();
-    this.audio.resume();
+    if (this.customBgMusic) this.customBgMusic.resume();
+    else this.audio.resume();
     this.controls.clear();
     this.ui.setMode('playing');
   }
@@ -220,7 +233,7 @@ export class GameScene extends Phaser.Scene {
   update(_time, rawDelta) {
     let delta = Math.min(rawDelta, 50);
     if (this.ui.dialog.open) { this.controls.endFrame(); return; }
-    if (this.controls.pressed('mute')) this.ui.setMuted(this.audio.toggleMute());
+    if (this.controls.pressed('mute')) this.toggleAudioMute();
     if (this.state === 'menu') {
       this.ambientTime += delta;
       this.city.update(this.ambientTime, delta, 65);
@@ -298,6 +311,12 @@ export class GameScene extends Phaser.Scene {
   }
 
   get multiplier() { return Math.min(8, Math.max(1, this.combo)) * (this.overdriveActive ? 2 : 1); }
+
+  toggleAudioMute() {
+    const muted = this.audio.toggleMute();
+    this.customBgMusic?.setMute(muted);
+    this.ui.setMuted(muted);
+  }
 
   getActiveThreats() {
     return [this.dogs, this.bees, this.empNets]
@@ -917,6 +936,9 @@ export class GameScene extends Phaser.Scene {
     this.catcher?.destroy();
     this.catcher = null;
     this.controls.destroy();
+    this.customBgMusic?.stop();
+    this.customBgMusic?.destroy();
+    this.customBgMusic = null;
     this.audio.destroy();
     this.effects.destroy();
     this.city.destroy();
