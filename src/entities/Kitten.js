@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { COLORS, GAME } from '../config/game.js';
+import { COLORS, FRENZY_PHYSICS, GAME } from '../config/game.js';
 import { EVOLUTIONS, EVOLUTION_RULES } from '../config/evolution.js';
 
 const PLAYER = Object.freeze({
@@ -18,6 +18,7 @@ const PLAYER = Object.freeze({
   dashSpeed: 830,
   beePenalty: 0.15,
   minimumMovementMultiplier: 0.4,
+  grazeMargin: 45,
 });
 
 /** Physics, action windows and player-owned effects stay together in this entity. */
@@ -49,7 +50,9 @@ export class Kitten extends Phaser.Physics.Arcade.Sprite {
     this.attackReadyAt = 0;
     this.dashEndsAt = 0;
     this.dashReadyAt = 0;
+    this.dashCooldownDuration = PLAYER.dashCooldown;
     this.dashSpeedMultiplier = 1;
+    this.dashFrenzySpeedMultiplier = 1;
     this.attachedBeeCount = 0;
     this.frenzyActive = false;
     this.hurtUntil = 0;
@@ -74,6 +77,13 @@ export class Kitten extends Phaser.Physics.Arcade.Sprite {
     this.attackHitbox.body.enable = false;
     this.attackHitbox.owner = this;
 
+    this.grazeHitbox = scene.add.zone(x, y);
+    scene.physics.add.existing(this.grazeHitbox);
+    this.grazeHitbox.body.setAllowGravity(false).setImmovable(true);
+    this.grazeHitbox.body.moves = true;
+    this.grazeHitbox.owner = this;
+    this.updateGrazeHitbox();
+
     this.wings = scene.add.graphics().setDepth(29).setBlendMode(Phaser.BlendModes.ADD);
     scene.events.once(Phaser.Scenes.Events.SHUTDOWN, this.destroy, this);
   }
@@ -90,6 +100,12 @@ export class Kitten extends Phaser.Physics.Arcade.Sprite {
   }
   get isFrenzy() {
     return this.frenzyActive;
+  }
+  get frenzyAnimationRate() {
+    return this.isFrenzy ? FRENZY_PHYSICS.animationRateMultiplier : 1;
+  }
+  get dashCooldown() {
+    return PLAYER.dashCooldown * (this.isFrenzy ? FRENZY_PHYSICS.dashCooldownMultiplier : 1);
   }
 
   setAttachedBeeCount(count) {
@@ -154,15 +170,17 @@ export class Kitten extends Phaser.Physics.Arcade.Sprite {
     this.setTint(this.evolution.color);
     this.wings.setScale(this.evolution.scale);
     this.updateAttackHitbox();
+    this.updateGrazeHitbox();
   }
 
   get dashCooldownProgress() {
     const now = this.scene?.playTime ?? this.lastUpdateTime;
-    return Phaser.Math.Clamp(1 - (this.dashReadyAt - now) / PLAYER.dashCooldown, 0, 1);
+    return Phaser.Math.Clamp(1 - (this.dashReadyAt - now) / this.dashCooldownDuration, 0, 1);
   }
 
   get isInvincible() {
-    return this.isDashing || (this.scene?.playTime ?? this.lastUpdateTime) < this.invincibleUntil;
+    return this.isDashing || this.isFrenzy
+      || (this.scene?.playTime ?? this.lastUpdateTime) < this.invincibleUntil;
   }
 
   update(time, delta, input) {
@@ -189,6 +207,7 @@ export class Kitten extends Phaser.Physics.Arcade.Sprite {
     if (this.isDashing && time >= this.dashEndsAt) {
       this.isDashing = false;
       this.dashSpeedMultiplier = 1;
+      this.dashFrenzySpeedMultiplier = 1;
       this.body.setAllowGravity(true);
       this.setVelocityX(0);
     }
@@ -213,7 +232,7 @@ export class Kitten extends Phaser.Physics.Arcade.Sprite {
       }
     } else {
       this.isGliding = false;
-      this.setVelocity(PLAYER.dashSpeed * this.dashSpeedMultiplier, 0);
+      this.setVelocity(PLAYER.dashSpeed * this.dashSpeedMultiplier * this.dashFrenzySpeedMultiplier, 0);
       if (time - this.lastTrailAt >= 24) {
         this.scene.effects?.afterimage(this);
         this.lastTrailAt = time;
@@ -226,6 +245,7 @@ export class Kitten extends Phaser.Physics.Arcade.Sprite {
 
     this.updateWeapons(time);
     this.updateAttackHitbox();
+    this.updateGrazeHitbox();
     this.drawWings(time);
     this.updateAppearance(time, delta, grounded);
     this.wasGrounded = grounded;
@@ -239,7 +259,8 @@ export class Kitten extends Phaser.Physics.Arcade.Sprite {
     this.isGliding = false;
     this.body.setGravityY(0);
     const jumpVelocity = isDoubleJump ? PLAYER.doubleJumpVelocity : PLAYER.jumpVelocity;
-    this.setVelocityY(jumpVelocity * this.movementMultiplier);
+    const frenzyJump = this.isFrenzy ? FRENZY_PHYSICS.jumpVelocityMultiplier : 1;
+    this.setVelocityY(jumpVelocity * this.movementMultiplier * frenzyJump);
     this.scene.effects?.burst(this.x - 6, this.body.bottom, this.evolution.color, isDoubleJump ? 20 : 11, 160);
     this.scene.audio?.play('jump');
     this.scene.events.emit('player-action', isDoubleJump ? 'double-jump' : 'jump');
@@ -272,10 +293,14 @@ export class Kitten extends Phaser.Physics.Arcade.Sprite {
     this.isDashing = true;
     this.isGliding = false;
     this.dashSpeedMultiplier = this.movementMultiplier;
-    this.dashEndsAt = time + PLAYER.dashDuration;
-    this.dashReadyAt = time + PLAYER.dashCooldown;
+    this.dashFrenzySpeedMultiplier = this.isFrenzy ? FRENZY_PHYSICS.dashSpeedMultiplier : 1;
+    const dashDuration = PLAYER.dashDuration
+      * (this.isFrenzy ? FRENZY_PHYSICS.dashDurationMultiplier : 1);
+    this.dashCooldownDuration = this.dashCooldown;
+    this.dashEndsAt = time + dashDuration;
+    this.dashReadyAt = time + this.dashCooldownDuration;
     this.body.setAllowGravity(false).setGravityY(0);
-    this.setVelocity(PLAYER.dashSpeed * this.dashSpeedMultiplier, 0);
+    this.setVelocity(PLAYER.dashSpeed * this.dashSpeedMultiplier * this.dashFrenzySpeedMultiplier, 0);
     this.lastDamageTrailAt = -Infinity;
     this.scene.effects?.burst(this.x - 34, this.y + 8, this.evolution.color, 22, 250);
     this.scene.audio?.play('dash');
@@ -343,6 +368,17 @@ export class Kitten extends Phaser.Physics.Arcade.Sprite {
     this.attackHitbox.body.setVelocity(roar ? 0 : this.body.velocity.x, roar ? 0 : this.body.velocity.y);
   }
 
+  updateGrazeHitbox() {
+    if (!this.grazeHitbox?.body || !this.body) return;
+    const width = this.body.width + PLAYER.grazeMargin * 2;
+    const height = this.body.height + PLAYER.grazeMargin * 2;
+    this.grazeHitbox.setSize(width, height);
+    this.grazeHitbox.body.setSize(width, height, true);
+    this.grazeHitbox.setPosition(this.body.center.x, this.body.center.y);
+    this.grazeHitbox.body.reset(this.body.center.x, this.body.center.y);
+    this.grazeHitbox.body.setVelocity(this.body.velocity.x, this.body.velocity.y);
+  }
+
   fireProjectile(time) {
     const shot = this.projectiles.create(this.body.right + 28, this.body.center.y, 'spark');
     shot.setDisplaySize(64, 22).setTint(this.evolution.color).setDepth(33).setBlendMode(Phaser.BlendModes.ADD);
@@ -386,8 +422,9 @@ export class Kitten extends Phaser.Physics.Arcade.Sprite {
   drawWings(time) {
     this.wings.clear();
     if (!this.isGliding) return;
+    const animationTime = time * this.frenzyAnimationRate;
     this.wings.setPosition(this.x, this.y + 4);
-    const lift = Math.sin(time * 0.012) * 6;
+    const lift = Math.sin(animationTime * 0.012) * 6;
     for (const side of [-1, 1]) {
       const points = [
         new Phaser.Geom.Point(side * 9, 2),
@@ -412,7 +449,8 @@ export class Kitten extends Phaser.Physics.Arcade.Sprite {
   }
 
   updateAppearance(time, delta, grounded) {
-    const frame = Math.floor(time / 72) % 4;
+    const animationTime = time * this.frenzyAnimationRate;
+    const frame = Math.floor(animationTime / 72) % 4;
     const baseTexture = this.currentEvolutionLevel === 5 ? 'kitten-solar' : 'kitten';
     const texture = grounded && !this.isDashing ? `${baseTexture}-run-${frame}` : baseTexture;
     if (this.texture.key !== texture && this.scene.textures.exists(texture)) this.setTexture(texture);
@@ -481,6 +519,7 @@ export class Kitten extends Phaser.Physics.Arcade.Sprite {
     this.clearWeapons();
     this.body?.setVelocity(0, 0);
     if (this.body) this.body.enable = false;
+    if (this.grazeHitbox?.body) this.grazeHitbox.body.enable = false;
     this.setAlpha(1);
   }
 
@@ -488,12 +527,14 @@ export class Kitten extends Phaser.Physics.Arcade.Sprite {
     if (!this.scene) return;
     this.scene.events.off(Phaser.Scenes.Events.SHUTDOWN, this.destroy, this);
     this.attackHitbox?.destroy();
+    this.grazeHitbox?.destroy();
     this.wings?.destroy();
     this.evolutionAura?.destroy();
     this.clearWeapons();
     this.projectiles?.destroy();
     this.dashTrails?.destroy();
     this.attackHitbox = null;
+    this.grazeHitbox = null;
     this.wings = null;
     super.destroy(fromScene);
   }

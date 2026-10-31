@@ -16,6 +16,13 @@ function normalizeSeed(seed) {
   return value >>> 0;
 }
 
+export function getDailyRunSeed(date = new Date()) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
+    throw new TypeError('Daily Run seed requires a valid Date.');
+  }
+  return date.toISOString().split('T')[0];
+}
+
 /** Deterministic encounter director. delta/elapsed use milliseconds; offsets use pixels. */
 export class RunDirector {
   constructor(seed = Date.now()) {

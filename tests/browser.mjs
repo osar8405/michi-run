@@ -46,7 +46,11 @@ try {
   await sceneReady();
   await page.evaluate(() => document.fonts.ready);
   await page.screenshot({ path: 'artifacts/menu-desktop.png', fullPage: true });
-  await page.locator('[data-ui="start"]').click();
+  await page.locator('[data-ui="daily-run"]').click();
+  assert.equal(await read(() => {
+    const scene = window.__MICHI_GAME__.scene.getScene('GameScene');
+    return scene.dailyRun && scene.runSeed === new Date().toISOString().split('T')[0];
+  }), true, 'Daily Run injects the current ISO date seed');
   await read(() => {
     const s = window.__MICHI_GAME__.scene.getScene('GameScene');
     s.director.nextDog = s.director.nextOrbs = s.director.nextPowerup = s.director.nextBalconies = Infinity;
@@ -116,6 +120,10 @@ try {
   await page.locator('#state-primary').click();
   await page.waitForFunction(() => { const s = window.__MICHI_GAME__.scene.getScene('GameScene'); return s.state === 'playing' && s.playTime < 1000; });
   assert.equal(await read(() => window.__MICHI_GAME__.scene.getScene('GameScene').player.health), 1, 'restart resets evolution to Cyber-Michi');
+  assert.equal(await read(() => {
+    const scene = window.__MICHI_GAME__.scene.getScene('GameScene');
+    return scene.dailyRun && scene.runSeed === new Date().toISOString().split('T')[0];
+  }), true, 'Daily Run restart preserves the shared date seed');
   assert.equal(await read(() => window.__MICHI_GAME__.events.listenerCount('ui-action')), 1, 'restart cleans UI subscriptions');
   await page.locator('.main-nav [data-ui="help"]').click();
   assert.equal(await page.locator('#help-dialog').evaluate((dialog) => dialog.open), true);

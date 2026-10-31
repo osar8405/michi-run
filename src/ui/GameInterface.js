@@ -10,6 +10,7 @@ const icons = {
   claw: '<path d="M3 20 9 5M9 21 15 3M16 20 22 5"/>',
   jump: '<path d="M4 19h16M12 16V3m-6 6 6-6 6 6"/>',
   wing: '<path d="M12 18C8 13 5 8 3 3c5 2 8 5 9 9 1-4 4-7 9-9-2 5-5 10-9 15Zm0-6v9"/>',
+  calendar: '<path d="M5 3v4m14-4v4M3 9h18M5 5h14a2 2 0 0 1 2 2v14H3V7a2 2 0 0 1 2-2Zm3 8h3v3H8Zm6 0h3v3h-3Z"/>',
   pause: '<path d="M8 5v14m8-14v14"/>',
   trophy:
     '<path d="M7 3h10v7a5 5 0 0 1-10 0Zm5 12v6m-4 0h8M7 5H3v3a4 4 0 0 0 4 4m10-7h4v3a4 4 0 0 1-4 4"/>',
@@ -42,7 +43,7 @@ export class GameInterface {
           <div class="menu-screen">
             <div class="title-copy"><div class="game-kicker"><span></span> CORRE. BRILLA. REPITE.</div><div class="game-logo" aria-label="Michi Run"><span class="logo-michi">MICHI</span><span class="logo-run">RUN<span class="logo-star">✦</span></span></div><div class="subtitle"><span>NEON NIGHTS</span><i>夜の街</i></div>
             <p class="game-description">Nueve vidas. Cero límites.<br>Conquista la ciudad a toda velocidad.</p>
-            <button class="start-button" data-ui="start">${icon("play")}<span>INICIAR CARRERA</span>${icon("arrow")}</button><div class="start-hint">O PRESIONA <kbd>ESPACIO</kbd> PARA EMPEZAR</div>
+            <button class="start-button" data-ui="start">${icon("play")}<span>INICIAR CARRERA</span>${icon("arrow")}</button><button class="daily-button" data-ui="daily-run">${icon("calendar")}<span>DAILY RUN</span><small>MISMA CIUDAD · MISMO DÍA</small></button><div class="start-hint">O PRESIONA <kbd>ESPACIO</kbd> PARA EMPEZAR</div>
             </div>
             <div class="hero-orbit" aria-hidden="true"><div class="orbit-ring ring-one"></div><div class="orbit-ring ring-two"></div><span class="hero-spark spark-one">✦</span><span class="hero-spark spark-two">+</span><img class="hero-cat" src="/assets/michi-hero.webp" alt=""/><div class="hero-id"><span class="hero-id-line"></span><div><b>MI-CHI / 01</b><small>CALLEJERO POR NATURALEZA.</small></div></div></div>
             <div class="menu-bottom"><span><i></i> ENDLESS RUNNER <em>×</em> CYBER COMBAT</span><span>INSERT COIN? <b>NAH. SOLO ACTITUD.</b></span></div>
