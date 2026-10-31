@@ -7,6 +7,14 @@ export const GAME = Object.freeze({
   maxSpeed: 760,
 });
 
+export const FRENZY_PHYSICS = Object.freeze({
+  animationRateMultiplier: 1.65,
+  jumpVelocityMultiplier: 1.22,
+  dashSpeedMultiplier: 1.4,
+  dashDurationMultiplier: 1.2,
+  dashCooldownMultiplier: 0.55,
+});
+
 export const COLORS = Object.freeze({
   bg: 0x0d0221,
   cyan: 0x00f3ff,

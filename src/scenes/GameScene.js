@@ -10,7 +10,7 @@ import { NeonCity } from '../world/NeonCity.js';
 import { NeonEffects } from '../fx/NeonEffects.js';
 import { InputController } from '../systems/InputController.js';
 import { SynthAudio } from '../systems/SynthAudio.js';
-import { RunDirector } from '../systems/RunDirector.js';
+import { getDailyRunSeed, RunDirector } from '../systems/RunDirector.js';
 import { ProgressStore } from '../systems/ProgressStore.js';
 
 const MISSIONS = [
@@ -26,8 +26,6 @@ const BALCONY_FLOOR_TOPS = Object.freeze({
   4: 110,
   5: 42,
 });
-const FRENZY_SPEED_MULTIPLIER = 1.55;
-
 export class GameScene extends Phaser.Scene {
   constructor() { super('GameScene'); }
 
@@ -58,6 +56,7 @@ export class GameScene extends Phaser.Scene {
     this.hitStopRemaining = 0;
     this.swarmChargeDrain = 0;
     this.lastSwarmWarningAt = -Infinity;
+    this.nearMissCount = 0;
     this.finalRecord = null;
     this.shareButton = null;
     this.time.timeScale = 1;
@@ -67,7 +66,9 @@ export class GameScene extends Phaser.Scene {
     this.city = new NeonCity(this);
     this.effects = new NeonEffects(this);
     this.audio = new SynthAudio();
-    this.director = new RunDirector();
+    this.runSeed = data.seed ?? null;
+    this.dailyRun = data.dailyRun === true;
+    this.director = new RunDirector(this.runSeed ?? undefined);
     this.controls = new InputController(this);
     this.createPhysics();
     this.bindLifecycle();
@@ -116,17 +117,22 @@ export class GameScene extends Phaser.Scene {
     this.physics.add.overlap(this.player, this.neonChickens, (_, chicken) => this.collectNeonChicken(chicken),
       (_, chicken) => this.state === 'playing' && chicken.active && !chicken.collected);
     this.physics.add.overlap(this.player, this.empNets, (_, net) => this.onEmpNetCollision(net),
-      (_, net) => this.state === 'playing' && net.active && !this.player.isDashing);
+      (_, net) => this.state === 'playing' && net.active);
+    for (const threats of [this.dogs, this.bees, this.empNets]) {
+      this.physics.add.overlap(this.player.grazeHitbox, threats, (_, threat) => this.trackGraze(threat),
+        (_, threat) => this.state === 'playing' && threat.active && !threat.attached && !threat.killed);
+    }
   }
 
   bindLifecycle() {
     this.onUiAction = (action) => {
       if (action === 'start' || action === 'play') {
         if (this.state === 'menu') this.startRun();
-        else if (this.state === 'gameover') this.scene.restart({ autoStart: true });
+        else if (this.state === 'gameover') this.restartRun();
         else if (this.state === 'paused') this.resumeRun();
       }
-      if (action === 'restart') this.scene.restart({ autoStart: true });
+      if (action === 'daily-run' && this.state === 'menu') this.startDailyRun();
+      if (action === 'restart') this.restartRun();
       if (action === 'pause') this.pauseRun();
       if (action === 'resume') this.resumeRun();
       if (action === 'menu') this.scene.restart({ autoStart: false });
@@ -158,6 +164,7 @@ export class GameScene extends Phaser.Scene {
     this.state = 'playing';
     this.player.setVisible(true);
     this.player.body.enable = true;
+    this.player.grazeHitbox.body.enable = true;
     const footOffset = (this.player.body.offset.y + this.player.body.sourceHeight - this.player.displayOriginY) * this.player.scaleY;
     this.player.body.reset(340, GAME.groundY - footOffset);
     this.player.body.updateFromGameObject();
@@ -168,8 +175,23 @@ export class GameScene extends Phaser.Scene {
     this.ui.setMode('playing');
     this.audio.start();
     this.effects.burst(this.player.x, this.player.y, COLORS.cyan, 35, 240);
-    this.ui.toast('LA NOCHE ES TUYA. CORRE.');
+    this.ui.toast(this.dailyRun ? `DAILY RUN / ${this.runSeed}` : 'LA NOCHE ES TUYA. CORRE.');
     this.refreshHud();
+  }
+
+  startDailyRun() {
+    this.runSeed = getDailyRunSeed();
+    this.dailyRun = true;
+    this.director = new RunDirector(this.runSeed);
+    this.startRun();
+  }
+
+  restartRun() {
+    this.scene.restart({
+      autoStart: true,
+      seed: this.runSeed,
+      dailyRun: this.dailyRun,
+    });
   }
 
   pauseRun() {
@@ -212,7 +234,7 @@ export class GameScene extends Phaser.Scene {
       return;
     }
     if (this.state === 'gameover') {
-      if (this.controls.pressed('restart') || this.controls.pressed('start')) this.scene.restart({ autoStart: true });
+      if (this.controls.pressed('restart') || this.controls.pressed('start')) this.restartRun();
       this.controls.endFrame();
       return;
     }
@@ -240,8 +262,7 @@ export class GameScene extends Phaser.Scene {
     if (this.combo > 0 && this.playTime > this.comboUntil) this.combo = 0;
     const events = this.director.update(delta, this.worldSpeed, this.player.currentEvolutionLevel,
       Boolean(this.catcher?.active), this.bees.countActive(true));
-    this.worldSpeed = this.director.speed * (this.player.isFrenzy ? FRENZY_SPEED_MULTIPLIER : 1)
-      + (this.overdriveActive ? 65 : 0);
+    this.worldSpeed = this.director.speed + (this.overdriveActive ? 65 : 0);
     this.distance += this.worldSpeed * delta / 1000 / 12;
     this.score += delta / 1000 * 6 * this.multiplier;
     this.city.update(this.ambientTime, delta, this.worldSpeed, { overdrive: this.overdriveActive });
@@ -255,8 +276,10 @@ export class GameScene extends Phaser.Scene {
     for (const event of events) this.spawnEncounter(event);
     this.updatePickups(delta);
     this.updateNeonChickens();
+    this.prepareNearMissTracking();
     // Physics and action timers share the same bounded step on slow devices.
     this.physics.world.update(_time, delta);
+    this.resolveNearMisses();
     for (const balcony of this.balconyGroup.getChildren()) balcony.syncGlow();
     if (this.state !== 'playing') { this.controls.endFrame(); return; }
     this.updatePlayerLight();
@@ -275,6 +298,54 @@ export class GameScene extends Phaser.Scene {
   }
 
   get multiplier() { return Math.min(8, Math.max(1, this.combo)) * (this.overdriveActive ? 2 : 1); }
+
+  getActiveThreats() {
+    return [this.dogs, this.bees, this.empNets]
+      .flatMap((group) => group.getChildren())
+      .filter((threat) => threat.active);
+  }
+
+  prepareNearMissTracking() {
+    for (const threat of this.getActiveThreats()) {
+      if (threat.nearMissState) threat.nearMissState.inside = false;
+    }
+  }
+
+  trackGraze(threat) {
+    if (!threat?.active) return;
+    threat.nearMissState ??= {
+      entered: false,
+      inside: false,
+      coreTouched: false,
+      rewarded: false,
+    };
+    threat.nearMissState.entered = true;
+    threat.nearMissState.inside = true;
+  }
+
+  markThreatContact(threat) {
+    if (!threat) return;
+    threat.nearMissState ??= {
+      entered: false,
+      inside: false,
+      coreTouched: false,
+      rewarded: false,
+    };
+    threat.nearMissState.coreTouched = true;
+  }
+
+  resolveNearMisses() {
+    for (const threat of this.getActiveThreats()) {
+      const graze = threat.nearMissState;
+      if (!graze?.entered || graze.inside || graze.coreTouched || graze.rewarded) continue;
+      graze.rewarded = true;
+      this.nearMissCount += 1;
+      this.addOverdrive(100 / 3);
+      this.cameras.main.flash(150, 255, 255, 255);
+      this.audio.play('near-miss');
+      this.ui.toast('NEAR MISS / ADRENALINA +33%');
+    }
+  }
 
   canLandOnBalcony(player, balcony) {
     if (this.state !== 'playing' || !player.body || !balcony.active || !balcony.body) return false;
@@ -512,6 +583,7 @@ export class GameScene extends Phaser.Scene {
 
   onBeeContact(bee) {
     if (!bee.active || bee.attached || this.state !== 'playing') return;
+    this.markThreatContact(bee);
     if (this.player.isDashing || this.player.isFrenzy) {
       bee.shakeOff();
       return;
@@ -553,7 +625,9 @@ export class GameScene extends Phaser.Scene {
 
   onEnemyContact(dog) {
     if (!dog.active || dog.killed || this.state !== 'playing') return;
-    if (this.player.isDashing || this.overdriveActive || (this.player.hasPassiveArmor && dog.type === 'runner')
+    this.markThreatContact(dog);
+    if (this.player.isFrenzy || this.player.isDashing || this.overdriveActive
+      || (this.player.hasPassiveArmor && dog.type === 'runner')
       || (this.player.isAttacking && (this.player.attackLevel === 5 || dog.x > this.player.x - 15))) {
       this.defeatDog(dog);
       return;
@@ -583,6 +657,7 @@ export class GameScene extends Phaser.Scene {
 
   onEmpNetCollision(net) {
     if (!net.active || this.state !== 'playing') return;
+    this.markThreatContact(net);
     if (this.player.isDashing) return;
     net.destroy();
     if (!this.player.takeEmpNetHit(this.playTime)) return;

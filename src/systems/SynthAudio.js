@@ -292,6 +292,10 @@ export class SynthAudio {
       case 'glide':
         this.tone(783, now, 0.22, { type: 'sine', gain: 0.035, slideTo: 1046 });
         break;
+      case 'near-miss':
+        this.tone(1318, now, 0.11, { type: 'triangle', gain: 0.085, slideTo: 2093 });
+        this.tone(1760, now + 0.055, 0.13, { type: 'sine', gain: 0.065, slideTo: 2637 });
+        break;
       default:
         this.tone(660, now, 0.065, { type: 'triangle', gain: 0.06 });
     }

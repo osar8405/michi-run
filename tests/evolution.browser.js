@@ -126,6 +126,44 @@ export async function runEvolutionChecks(page) {
       clear();
       settle();
 
+      const nearMisses = scene.nearMissCount;
+      const grazeDog = spawn(600, 638);
+      const grazeLeft = player.body.right + 20;
+      grazeDog.x += grazeLeft - grazeDog.body.left;
+      grazeDog.setVelocity(0, 0);
+      grazeDog.body.updateFromGameObject();
+      grazeDog.body.prevFrame.copy(grazeDog.body.position);
+      check(grazeDog.body.left > player.body.right
+        && grazeDog.body.left < player.grazeHitbox.body.right,
+      'Graze setup overlaps only the expanded player hitbox');
+      scene.prepareNearMissTracking();
+      physicsStep();
+      scene.resolveNearMisses();
+      check(grazeDog.nearMissState?.inside && !grazeDog.nearMissState.coreTouched,
+        'threat entering the Graze Hitbox starts a clean near-miss');
+      grazeDog.x += 300;
+      grazeDog.body.updateFromGameObject();
+      scene.prepareNearMissTracking();
+      physicsStep();
+      scene.resolveNearMisses();
+      close(scene.energy, 100 / 3, 'clean Graze exit grants 33% Overdrive');
+      check(scene.nearMissCount === nearMisses + 1 && grazeDog.nearMissState.rewarded,
+        'Near-Miss rewards once after leaving the Graze Hitbox');
+      const rewardedEnergy = scene.energy;
+      grazeDog.x -= 300;
+      grazeDog.body.updateFromGameObject();
+      scene.prepareNearMissTracking();
+      physicsStep();
+      scene.resolveNearMisses();
+      grazeDog.x += 300;
+      grazeDog.body.updateFromGameObject();
+      scene.prepareNearMissTracking();
+      physicsStep();
+      scene.resolveNearMisses();
+      close(scene.energy, rewardedEnergy, 'same threat cannot farm repeated Near-Miss rewards');
+      clear();
+      settle();
+
       player.evolutionCharge = 11;
       scene.createPickup(player.body.center.x, player.body.center.y, 'neon-shard');
       step();
@@ -224,6 +262,24 @@ export async function runEvolutionChecks(page) {
       player.lastUpdateTime = scene.playTime + 60000;
       check(player.isFrenzy,
         'Neon Chicken Frenzy remains active without a timer');
+      step();
+      close(scene.worldSpeed, scene.director.speed,
+        'Frenzy keeps world scroll speed at the normal director speed');
+      close(player.frenzyAnimationRate, 1.65,
+        'Frenzy accelerates player-owned run and glide animation timing');
+      player.jumpsUsed = 0;
+      player.jump(scene.playTime);
+      check(player.body.velocity.y < -840,
+        'Frenzy increases jump impulse without changing world physics');
+      settle();
+      player.dashReadyAt = 0;
+      const frenzyDashAt = scene.playTime;
+      player.dash(frenzyDashAt);
+      check(player.body.velocity.x > 1160
+        && player.dashEndsAt - frenzyDashAt > 200
+        && player.dashReadyAt - frenzyDashAt < 800,
+      'Frenzy buffs Dash speed, distance, and cooldown');
+      step(14);
       const net = scene.empNets.create(player.x, player.y, 'emp-net');
       scene.onEmpNetCollision(net);
       check(!net.active && !player.isFrenzy && player.currentEvolutionLevel === 1,
@@ -238,8 +294,13 @@ export async function runEvolutionChecks(page) {
       player.activateFrenzy();
       spawn(player.x, player.y, 'hound');
       step();
-      check(player.currentEvolutionLevel === 3 && !player.isFrenzy && !player.isDead,
-        'Cyber-Dog damage cancels Frenzy and downgrades Tiger exactly one stage');
+      check(player.currentEvolutionLevel === 4 && player.isFrenzy && scene.dogs.getLength() === 0,
+        'Frenzy contact instantly destroys Cyber-Dogs');
+      player.deactivateFrenzy();
+      spawn(player.x, player.y, 'hound');
+      step();
+      check(player.currentEvolutionLevel === 3 && !player.isDead,
+        'normal Cyber-Dog damage still downgrades Tiger exactly one stage');
       close(player.invincibleUntil - scene.playTime, 2000, 'two seconds of damage immunity');
       check(player.takeDamage() === false, 'repeat contact cannot consume another stage during immunity');
       check(scene.effects.emitters.get('pixels').getAliveParticleCount() > 0, 'damage emits pixel fragments');

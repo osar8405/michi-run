@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { RunDirector } from '../src/systems/RunDirector.js';
+import { getDailyRunSeed, RunDirector } from '../src/systems/RunDirector.js';
 
 const FRAME = 1000 / 60;
 
@@ -14,6 +14,16 @@ function simulate(director, seconds, withTiming = false, evolutionLevel = 1, act
   }
   return events;
 }
+
+test('Daily Run usa exclusivamente la fecha ISO como semilla compartida', () => {
+  const date = new Date('2026-10-30T23:15:00.000Z');
+  assert.equal(getDailyRunSeed(date), '2026-10-30');
+  assert.deepEqual(
+    simulate(new RunDirector(getDailyRunSeed(date)), 60, true),
+    simulate(new RunDirector('2026-10-30'), 60, true),
+  );
+  assert.throws(() => getDailyRunSeed(new Date('invalid')), TypeError);
+});
 
 test('la misma semilla reproduce encuentros y reset reinicia toda la carrera', () => {
   const first = new RunDirector('neon-night-01');
