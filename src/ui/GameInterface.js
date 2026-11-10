@@ -10,7 +10,8 @@ const icons = {
   claw: '<path d="M3 20 9 5M9 21 15 3M16 20 22 5"/>',
   jump: '<path d="M4 19h16M12 16V3m-6 6 6-6 6 6"/>',
   wing: '<path d="M12 18C8 13 5 8 3 3c5 2 8 5 9 9 1-4 4-7 9-9-2 5-5 10-9 15Zm0-6v9"/>',
-  calendar: '<path d="M5 3v4m14-4v4M3 9h18M5 5h14a2 2 0 0 1 2 2v14H3V7a2 2 0 0 1 2-2Zm3 8h3v3H8Zm6 0h3v3h-3Z"/>',
+  calendar:
+    '<path d="M5 3v4m14-4v4M3 9h18M5 5h14a2 2 0 0 1 2 2v14H3V7a2 2 0 0 1 2-2Zm3 8h3v3H8Zm6 0h3v3h-3Z"/>',
   pause: '<path d="M8 5v14m8-14v14"/>',
   trophy:
     '<path d="M7 3h10v7a5 5 0 0 1-10 0Zm5 12v6m-4 0h8M7 5H3v3a4 4 0 0 0 4 4m10-7h4v3a4 4 0 0 1-4 4"/>',
@@ -33,7 +34,7 @@ export class GameInterface {
         <div class="header-tools"><span class="live-indicator"><i></i> SISTEMA ONLINE</span><button class="icon-button" data-ui="mute" aria-label="Activar o silenciar audio" aria-pressed="false">${icon("sound")}</button><button class="icon-button" data-ui="fullscreen" aria-label="Pantalla completa">${icon("expand")}</button></div>
       </header>
       <main class="main-content">
-        <div class="game-heading"><div><span class="eyebrow">EL ARCADE NUNCA DUERME</span><h1>Tu próxima obsesión<span> nocturna.</span></h1></div><div class="edition"><span class="edition-lines">///</span> NEON NIGHTS <b>VOL. 03</b></div></div>
+        <div class="game-heading"><div><span class="eyebrow">EL ARCADE NUNCA DUERME</span><h1>Tu próxima obsesión<span> nocturna.</span></h1></div><div class="edition"><span class="edition-lines">///</span> NEON NIGHTS <b>VOL. 05</b></div></div>
         <section class="arcade-frame" id="arcade-frame" aria-label="Michi Run, videojuego de acción" data-mode="loading">
           <div id="game-canvas" role="img" aria-label="Escenario de Michi Run. Usa Espacio para saltar, F para atacar y Shift para dash."></div>
           <div class="frame-grain" aria-hidden="true"></div><div class="frame-vignette" aria-hidden="true"></div>
@@ -50,7 +51,7 @@ export class GameInterface {
           </div>
           <div class="run-hud" aria-label="Estadísticas de la carrera"><div class="hud-left"><span class="hud-caption">PUNTUACIÓN</span><strong id="score">000000</strong><div class="vitals"><div id="health" class="health">${icon("heart")}${icon("heart")}${icon("heart")}</div><span id="distance">0 m</span></div></div><div class="hud-right"><span class="hud-caption">NEON OVERDRIVE</span><div class="drive-track"><i id="drive-fill"></i><span class="drive-ticks"></span></div><div class="drive-details"><span id="drive-label">RECARGA CON ENERGÍA Y COMBOS</span><strong id="combo">×1</strong></div></div>
             <div class="mission"><span class="mission-label">MISIÓN DE LA NOCHE</span><span id="mission-text">Recoge 20 fragmentos de neón</span><b id="mission-progress">0 / 20</b></div>
-            <div class="ability-status"><span id="shield-status"></span><span id="magnet-status"></span></div>
+            <div class="ability-status"><span id="shield-status"></span><span id="magnet-status"></span></div><div class="mobility-status"><span id="flight-label">ALAS 100%</span><div class="flight-track"><i id="flight-fill"></i></div></div><div class="wolf-warning" id="wolf-warning"><span>LOBO DE SOMBRA</span><strong id="wolf-countdown">DISTANCIA SEGURA</strong><div class="wolf-track"><i id="wolf-fill"></i></div></div>
             <div class="evolution-status" id="evolution-status"><span class="hud-caption" id="evolution-name">NV. 1 · CYBER-MICHI</span><div class="evolution-track" role="progressbar" aria-label="Energía para evolucionar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i id="evolution-fill"></i></div><span id="evolution-progress">0 / 12 FRAGMENTOS</span><small id="evolution-power">DOBLE SALTO · GARRAS</small></div>
             <button class="pause-button icon-button" data-ui="pause" aria-label="Pausar carrera">${icon("pause")}</button>
             <div class="dash-indicator"><div class="dash-orb" id="dash-orb">${icon("bolt")}</div><span id="dash-label">DASH LISTO <kbd>SHIFT</kbd></span></div>
@@ -220,6 +221,33 @@ export class GameInterface {
       .classList.toggle("ready", stats.dashReady);
     this.setText("shield-status", stats.shield ? "◇ ESCUDO ACTIVO" : "");
     this.setText("magnet-status", stats.magnet ? "⊙ IMÁN ACTIVO" : "");
+    const flightPercent = Math.round(stats.flightStamina * 100);
+    this.setText(
+      "flight-label",
+      stats.climbing
+        ? "ESCALANDO"
+        : stats.flying
+          ? `VUELO ${flightPercent}%`
+          : `ALAS ${flightPercent}%`,
+    );
+    this.root.querySelector("#flight-fill").style.transform =
+      `scaleX(${stats.flightStamina})`;
+    this.frame.classList.toggle("is-flying", stats.flying);
+    this.frame.classList.toggle("is-climbing", stats.climbing);
+    this.root
+      .querySelector("#wolf-warning")
+      .classList.toggle("active", stats.wolfActive);
+    this.root.querySelector("#wolf-fill").style.transform =
+      `scaleX(${stats.wolfPressure})`;
+    this.setText(
+      "wolf-countdown",
+      stats.wolfPressure > 0
+        ? `MUERTE EN ${stats.wolfSeconds} s`
+        : "DISTANCIA SEGURA",
+    );
+    this.root
+      .querySelector("#wolf-warning")
+      .classList.toggle("danger", stats.wolfPressure > 0);
     this.setText("mission-text", stats.mission.text);
     this.setText(
       "mission-progress",

@@ -1,11 +1,12 @@
 import Phaser from 'phaser';
-import { GAME, COLORS } from '../config/game.js';
+import { GAME, COLORS, MOBILITY, PREDATOR_WOLF } from '../config/game.js';
 import { EVOLUTION_RULES } from '../config/evolution.js';
 import { Kitten } from '../entities/Kitten.js';
 import { Dog } from '../entities/Dog.js';
 import { HumanCatcher } from '../entities/HumanCatcher.js';
 import { NeonBee, NEON_BEE_RULES } from '../entities/NeonBee.js';
 import { NeonBalcony } from '../entities/NeonBalcony.js';
+import { PredatorWolf } from '../entities/PredatorWolf.js';
 import { NeonCity } from '../world/NeonCity.js';
 import { NeonEffects } from '../fx/NeonEffects.js';
 import { InputController } from '../systems/InputController.js';
@@ -57,6 +58,8 @@ export class GameScene extends Phaser.Scene {
     this.swarmChargeDrain = 0;
     this.lastSwarmWarningAt = -Infinity;
     this.nearMissCount = 0;
+    this.wolf = null;
+    this.wolfSpawned = false;
     this.finalRecord = null;
     this.shareButton = null;
     this.time.timeScale = 1;
@@ -280,6 +283,7 @@ export class GameScene extends Phaser.Scene {
     this.score += delta / 1000 * 6 * this.multiplier;
     this.city.update(this.ambientTime, delta, this.worldSpeed, { overdrive: this.overdriveActive });
     this.player.update(this.playTime, delta, this.controls);
+    this.wolf?.updatePursuit(this.playTime, delta, this.player);
     this.catcher?.updatePursuit(this.playTime, delta, this.player);
     for (const dog of this.dogs.getChildren().slice()) dog.updateRun(this.playTime, delta, this.worldSpeed);
     for (const balcony of this.balconyGroup.getChildren().slice()) {
@@ -370,6 +374,24 @@ export class GameScene extends Phaser.Scene {
     if (this.state !== 'playing' || !player.body || !balcony.active || !balcony.body) return false;
     const previousBottom = player.body.prev.y + player.body.height;
     return player.body.velocity.y >= 0 && previousBottom <= balcony.body.top + 12;
+  }
+
+  findClimbAnchor(player) {
+    if (!player?.body) return null;
+    let nearest = null;
+    for (const balcony of this.balconyGroup.getChildren()) {
+      if (!balcony.active || !balcony.body) continue;
+      const top = balcony.body.top;
+      if (player.body.bottom <= top + 8 || player.body.top >= top + balcony.climbHeight) continue;
+      for (const side of [-1, 1]) {
+        const edgeX = side < 0 ? balcony.body.left : balcony.body.right;
+        const playerEdge = side < 0 ? player.body.right : player.body.left;
+        const distance = Math.abs(playerEdge - edgeX);
+        if (distance > MOBILITY.climbReach || (nearest && distance >= nearest.distance)) continue;
+        nearest = { balcony, side, distance };
+      }
+    }
+    return nearest;
   }
 
   spawnEncounter(event) {
@@ -642,6 +664,33 @@ export class GameScene extends Phaser.Scene {
     for (const balcony of this.balconyGroup.getChildren().slice()) balcony.retire();
   }
 
+  spawnWolf() {
+    if (this.wolfSpawned || this.state !== 'playing') return;
+    this.wolfSpawned = true;
+    this.wolf = new PredatorWolf(this);
+    this.effects.burst(35, GAME.groundY - 55, 0xff304f, 48, 380);
+    this.cameras.main.shake(240, 0.009);
+    this.ui.toast('LOBO DE SOMBRA / ALÉJATE O MORIRÁS EN 5 SEGUNDOS');
+  }
+
+  despawnWolf(resetSpawn = false) {
+    this.wolf?.destroy();
+    this.wolf = null;
+    if (resetSpawn) this.wolfSpawned = false;
+  }
+
+  onWolfCapture() {
+    if (this.state !== 'playing' || !this.wolf?.active) return;
+    this.player.isDead = true;
+    this.player.deactivateFrenzy();
+    this.audio.play('hit');
+    this.cameras.main.shake(420, 0.02);
+    this.cameras.main.flash(260, 255, 0, 45, false);
+    this.effects.shatter(this.player.x, this.player.y, 0xff304f);
+    this.endRun();
+    this.ui.setText('state-description', 'EL LOBO TE ALCANZÓ. ROMPE LA DISTANCIA ANTES DE 5 SEGUNDOS.');
+  }
+
   onEnemyContact(dog) {
     if (!dog.active || dog.killed || this.state !== 'playing') return;
     this.markThreatContact(dog);
@@ -730,6 +779,7 @@ export class GameScene extends Phaser.Scene {
 
   onEvolutionChanged(level, upgraded) {
     if (this.state !== 'playing') return;
+    if (level >= PREDATOR_WOLF.unlockEvolutionLevel) this.spawnWolf();
     if (level < 4) {
       this.despawnCatcher();
       this.clearBeeSwarm();
@@ -811,6 +861,14 @@ export class GameScene extends Phaser.Scene {
       dashReady: this.player.dashCooldownProgress >= 1,
       dashProgress: this.player.dashCooldownProgress,
       shield: this.shield, magnet: this.playTime < this.magnetUntil, mission: this.mission,
+      flightStamina: this.player.flightStaminaRatio,
+      flying: this.player.isFlying,
+      climbing: this.player.isClimbing,
+      wolfActive: Boolean(this.wolf?.active),
+      wolfPressure: this.wolf?.pressure ?? 0,
+      wolfSeconds: this.wolf?.active
+        ? Math.max(0, Math.ceil((PREDATOR_WOLF.lethalDuration - this.wolf.proximityElapsed) / 1000))
+        : 5,
     });
   }
 
@@ -825,6 +883,8 @@ export class GameScene extends Phaser.Scene {
     this.setSimulationRate(1);
     this.physics.pause();
     this.player.stop();
+    this.wolf?.setVelocity(0, 0);
+    this.wolf?.tether?.clear();
     this.clearBeeSwarm();
     this.shieldRing.clear();
     this.controls.clear();
@@ -933,6 +993,7 @@ export class GameScene extends Phaser.Scene {
     this.shareButton?.remove();
     this.shareButton = null;
     this.clearBeeSwarm();
+    this.despawnWolf();
     this.catcher?.destroy();
     this.catcher = null;
     this.controls.destroy();
