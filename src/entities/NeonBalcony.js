@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 
 const TEXTURE_WIDTH = 320;
 const TEXTURE_HEIGHT = 38;
+const CLIMB_HEIGHT = 150;
 const COLORS = Object.freeze({
   cyan: 0x00f3ff,
   magenta: 0xff00ff,
@@ -46,6 +47,8 @@ export class NeonBalcony extends Phaser.Physics.Arcade.Sprite {
       .setAlpha(0.32)
       .setDepth(22)
       .setBlendMode(Phaser.BlendModes.ADD);
+    this.climbRails = scene.add.graphics().setDepth(21).setBlendMode(Phaser.BlendModes.ADD);
+    this.drawClimbRails();
     this.configureBody();
     this.body.updateFromGameObject();
 
@@ -67,11 +70,32 @@ export class NeonBalcony extends Phaser.Physics.Arcade.Sprite {
     if (!this.active || !this.body) return;
     this.setVelocityX(-worldSpeed);
     this.glow.setAlpha(0.26 + Math.sin(time * 0.006 + this.x * 0.002) * 0.08);
+    this.climbRails.setAlpha(0.46 + Math.sin(time * 0.008 + this.x * 0.003) * 0.12);
     if (this.body.right < -90) this.retire();
   }
 
   syncGlow() {
-    if (this.active) this.glow?.setPosition(this.x, this.y);
+    if (!this.active) return;
+    this.glow?.setPosition(this.x, this.y);
+    this.climbRails?.setPosition(this.x, this.y);
+  }
+
+  drawClimbRails() {
+    const color = COLORS[this.colorName];
+    const halfWidth = this.platformWidth / 2 - 9;
+    this.climbRails.clear().setPosition(this.x, this.y);
+    for (const side of [-1, 1]) {
+      const x = side * halfWidth;
+      this.climbRails.lineStyle(8, color, 0.08).lineBetween(x, 0, x, CLIMB_HEIGHT);
+      this.climbRails.lineStyle(2, color, 0.8).lineBetween(x, 0, x, CLIMB_HEIGHT);
+      for (let y = 18; y < CLIMB_HEIGHT; y += 24) {
+        this.climbRails.lineStyle(1, 0xffffff, 0.5).lineBetween(x - 8, y, x + 8, y);
+      }
+    }
+  }
+
+  get climbHeight() {
+    return CLIMB_HEIGHT;
   }
 
   retire() {
@@ -86,6 +110,8 @@ export class NeonBalcony extends Phaser.Physics.Arcade.Sprite {
     this.scene.events.off(Phaser.Scenes.Events.SHUTDOWN, this.destroy, this);
     this.glow?.destroy();
     this.glow = null;
+    this.climbRails?.destroy();
+    this.climbRails = null;
     super.destroy(fromScene);
   }
 }

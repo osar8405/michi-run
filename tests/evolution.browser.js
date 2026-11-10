@@ -99,6 +99,8 @@ export async function runEvolutionChecks(page) {
       check(balcony.body.checkCollision.up && !balcony.body.checkCollision.down
         && !balcony.body.checkCollision.left && !balcony.body.checkCollision.right,
       'Balcony body exposes only its top collision face');
+      check(balcony.climbHeight === 150 && balcony.climbRails.commandBuffer.length > 0,
+        'Balcony exposes procedural climb rails below both edges');
       const balconyTop = balcony.body.top;
       player.body.setAllowGravity(true).setGravityY(0);
       placeFeet(balconyTop + 46);
@@ -123,6 +125,34 @@ export async function runEvolutionChecks(page) {
       balconyBee.body.updateFromGameObject();
       balconyBee.updateFlight(scene.playTime, 1000 / 60, player);
       check(balconyBee.body.velocity.y < 0, 'Neon Bees pursue players on the vertical route');
+      scene.clearBeeSwarm();
+      placeFeet(balcony.body.top + 120, 500);
+      player.x += (balcony.body.left - 12) - player.body.right;
+      player.body.updateFromGameObject();
+      scene.controls.setSource('glide', 'mobility-test', true);
+      step();
+      check(player.isClimbing, 'holding Wings near a Balcony edge starts contextual climbing');
+      step(32);
+      check(!player.isClimbing && Math.abs(player.body.bottom - balcony.body.top) < 3,
+        'climbing reaches and mounts the moving Balcony top');
+      scene.controls.setSource('glide', 'mobility-test', false);
+      clear();
+      settle();
+
+      placeFeet(500);
+      player.jumpsUsed = 1;
+      player.flightStamina = 100;
+      scene.controls.setSource('glide', 'mobility-test', true);
+      step(30);
+      check(player.isFlying && player.body.velocity.y < 0 && player.flightStamina < 90,
+        'Wings provide real lift while consuming flight stamina');
+      const drainedStamina = player.flightStamina;
+      scene.controls.setSource('glide', 'mobility-test', false);
+      placeFeet(638);
+      player.body.setAllowGravity(true);
+      step(30);
+      check(player.flightStamina > drainedStamina,
+        'landing on the ground recharges flight stamina');
       clear();
       settle();
 
@@ -381,6 +411,22 @@ export async function runEvolutionChecks(page) {
       check(document.querySelector('#evolution-name').textContent.includes('MECHA-SOLAR LION'), 'HUD shows Apex name');
       check(document.querySelectorAll('#health svg:not(.empty)').length === 5, 'HUD shows five survival stages');
       check(document.querySelector('[data-action="attack"] span').textContent === 'RUGIDO', 'touch attack reflects roar');
+      check(scene.wolf?.active && scene.textures.exists('predator-wolf'),
+        'Plasma Tiger awakening spawns the procedural Shadow Wolf once');
+      scene.wolf.setPosition(player.x - 60, player.y).setVelocity(0, 0);
+      scene.wolf.body.updateFromGameObject();
+      scene.wolf.proximityElapsed = 0;
+      scene.wolf.updatePursuit(scene.playTime, 4900, player);
+      check(scene.state === 'playing' && scene.wolf.proximityElapsed === 4900,
+        'Wolf pressure remains nonlethal before five continuous seconds');
+      scene.wolf.setPosition(-500, 20).setVelocity(0, 0);
+      scene.wolf.body.updateFromGameObject();
+      scene.wolf.updatePursuit(scene.playTime, 16, player);
+      check(scene.wolf.proximityElapsed === 0,
+        'escaping the Wolf lethal radius immediately resets its timer');
+      scene.refreshHud();
+      check(document.querySelector('#wolf-warning').classList.contains('active'),
+        'HUD exposes the active Shadow Wolf pursuit');
 
       for (let level = 4; level >= 1; level--) {
         player.invincibleUntil = 0;

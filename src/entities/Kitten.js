@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { COLORS, FRENZY_PHYSICS, GAME } from '../config/game.js';
+import { COLORS, FRENZY_PHYSICS, GAME, MOBILITY } from '../config/game.js';
 import { EVOLUTIONS, EVOLUTION_RULES } from '../config/evolution.js';
 
 const PLAYER = Object.freeze({
@@ -42,6 +42,10 @@ export class Kitten extends Phaser.Physics.Arcade.Sprite {
     this.isAttacking = false;
     this.isDashing = false;
     this.isGliding = false;
+    this.isFlying = false;
+    this.isClimbing = false;
+    this.climbAnchor = null;
+    this.flightStamina = MOBILITY.flightStaminaMax;
     this.stopped = false;
     this.jumpsUsed = 0;
     this.lastGroundedAt = -Infinity;
@@ -100,6 +104,9 @@ export class Kitten extends Phaser.Physics.Arcade.Sprite {
   }
   get isFrenzy() {
     return this.frenzyActive;
+  }
+  get flightStaminaRatio() {
+    return this.flightStamina / MOBILITY.flightStaminaMax;
   }
   get frenzyAnimationRate() {
     return this.isFrenzy ? FRENZY_PHYSICS.animationRateMultiplier : 1;
@@ -190,6 +197,13 @@ export class Kitten extends Phaser.Physics.Arcade.Sprite {
     if (grounded) {
       this.lastGroundedAt = time;
       this.jumpsUsed = 0;
+      this.flightStamina = Math.min(
+        MOBILITY.flightStaminaMax,
+        this.flightStamina + MOBILITY.flightRechargePerSecond * delta / 1000,
+      );
+      this.isFlying = false;
+      this.isClimbing = false;
+      this.climbAnchor = null;
       if (!this.wasGrounded && time > 160) {
         this.scene.effects?.burst(this.x, this.body.bottom, this.evolution.color, 8, 100);
         this.scene.audio?.play('land');
@@ -215,23 +229,34 @@ export class Kitten extends Phaser.Physics.Arcade.Sprite {
     if (!this.isDashing) {
       if (this.jumpBufferedUntil >= time && this.jumpsUsed < 2) this.jump(time);
 
-      const wasGliding = this.isGliding;
-      this.isGliding = !grounded && this.body.velocity.y > 0
-        && (input.held('jump') || input.held('glide'));
-      // Arcade adds body gravity to world gravity; counteract the world, don't replace it.
-      this.body.setGravityY(this.isGliding ? GAME.gravity * (PLAYER.glideGravity - 1) : 0);
-      if (this.isGliding) {
-        this.setVelocityY(Math.min(this.body.velocity.y, PLAYER.glideFallSpeed));
-        if (!wasGliding) this.scene.events.emit('player-action', 'glide');
+      const wantsWings = input.held('jump') || input.held('glide');
+      const wasFlying = this.isFlying;
+      const climbing = this.updateClimbing(time, wantsWings);
+      if (!climbing) {
+        this.isFlying = !grounded && wantsWings && this.flightStamina > 0;
+        this.isGliding = this.isFlying;
+        this.body.setAllowGravity(!this.isFlying).setGravityY(0);
+        if (this.isFlying) {
+          this.flightStamina = Math.max(
+            0,
+            this.flightStamina - MOBILITY.flightDrainPerSecond * delta / 1000,
+          );
+          const lift = MOBILITY.flightAcceleration * delta / 1000;
+          this.setVelocityY(Math.max(-MOBILITY.flightLiftSpeed, this.body.velocity.y - lift));
+          if (!wasFlying) this.scene.events.emit('player-action', 'glide');
+        }
       }
 
-      if (time >= this.hurtUntil) {
+      if (!climbing && time >= this.hurtUntil) {
         const movement = this.movementMultiplier;
         const targetX = this.anchorX + (input.direction ?? 0) * 80 * movement;
         this.setVelocityX(Phaser.Math.Clamp((targetX - this.x) * 7.5, -380 * movement, 380 * movement));
       }
     } else {
       this.isGliding = false;
+      this.isFlying = false;
+      this.isClimbing = false;
+      this.climbAnchor = null;
       this.setVelocity(PLAYER.dashSpeed * this.dashSpeedMultiplier * this.dashFrenzySpeedMultiplier, 0);
       if (time - this.lastTrailAt >= 24) {
         this.scene.effects?.afterimage(this);
@@ -264,6 +289,60 @@ export class Kitten extends Phaser.Physics.Arcade.Sprite {
     this.scene.effects?.burst(this.x - 6, this.body.bottom, this.evolution.color, isDoubleJump ? 20 : 11, 160);
     this.scene.audio?.play('jump');
     this.scene.events.emit('player-action', isDoubleJump ? 'double-jump' : 'jump');
+  }
+
+  updateClimbing(time, wantsClimb) {
+    if (!wantsClimb) {
+      this.isClimbing = false;
+      this.climbAnchor = null;
+      return false;
+    }
+
+    if (!this.climbAnchor) {
+      this.climbAnchor = this.scene.findClimbAnchor?.(this) ?? null;
+      if (this.climbAnchor) this.scene.events.emit('player-action', 'climb');
+    }
+
+    const balcony = this.climbAnchor?.balcony;
+    if (!balcony?.active || !balcony.body) {
+      this.isClimbing = false;
+      this.climbAnchor = null;
+      return false;
+    }
+
+    const side = this.climbAnchor.side;
+    const edgeX = side < 0 ? balcony.body.left : balcony.body.right;
+    if (this.body.bottom <= balcony.body.top + 8) {
+      this.completeClimb(balcony.body.top, edgeX, side, time);
+      return true;
+    }
+
+    const targetX = edgeX + side * (this.body.width / 2 + 5);
+    this.isClimbing = true;
+    this.isFlying = false;
+    this.isGliding = false;
+    this.body.setAllowGravity(false).setGravityY(0);
+    this.setVelocity(
+      balcony.body.velocity.x
+        + Phaser.Math.Clamp((targetX - this.body.center.x) * 9, -220, 220),
+      -MOBILITY.climbSpeed,
+    );
+    return true;
+  }
+
+  completeClimb(top, edgeX, side, time) {
+    const footOffset = (this.body.offset.y + this.body.sourceHeight - this.displayOriginY) * this.scaleY;
+    const landingX = edgeX - side * (this.body.width / 2 + 12);
+    this.setPosition(landingX, top - footOffset).setVelocity(0, 0);
+    this.body.updateFromGameObject();
+    this.body.prev.copy(this.body.position);
+    this.body.prevFrame.copy(this.body.position);
+    this.lastGroundedAt = time;
+    this.jumpsUsed = 0;
+    this.isClimbing = false;
+    this.climbAnchor = null;
+    this.body.setAllowGravity(true);
+    this.scene.effects?.burst(landingX, top, this.evolution.color, 12, 130);
   }
 
   attack(time = this.scene?.playTime ?? this.lastUpdateTime) {
@@ -335,6 +414,9 @@ export class Kitten extends Phaser.Physics.Arcade.Sprite {
   beginHit() {
     const previousColor = this.evolution.color;
     this.deactivateFrenzy();
+    this.isFlying = false;
+    this.isClimbing = false;
+    this.climbAnchor = null;
     this.endAttack();
     this.clearWeapons();
     this.evolutionCharge = 0;
@@ -513,6 +595,9 @@ export class Kitten extends Phaser.Physics.Arcade.Sprite {
     this.frenzyActive = false;
     this.attachedBeeCount = 0;
     this.isGliding = false;
+    this.isFlying = false;
+    this.isClimbing = false;
+    this.climbAnchor = null;
     this.endAttack();
     this.wings?.clear();
     this.evolutionAura?.clear();
